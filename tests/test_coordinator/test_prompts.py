@@ -1,11 +1,11 @@
 """Tests for coordinator prompt templates."""
 
+from norn.coordinator.models import CoordinatorPhase
 from norn.coordinator.prompts import (
     build_coordinator_system_prompt,
     build_phase_prompt,
     build_worker_system_prompt,
 )
-from norn.coordinator.models import CoordinatorPhase
 
 
 def test_coordinator_system_prompt_is_string():
