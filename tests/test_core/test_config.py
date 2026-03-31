@@ -1,6 +1,5 @@
 """Tests for configuration system."""
 
-
 from norn.core.config import NornConfig, PermissionMode
 
 
@@ -27,3 +26,11 @@ def test_config_env_override(monkeypatch):
     config = NornConfig()
     config.apply_env_overrides()
     assert config.llm.model == "gpt-4o"
+
+
+def test_flag_env_overrides():
+    """Feature flags should be overridable via config."""
+    config = NornConfig()
+    assert config.flags.dream_system is False
+    config.flags.dream_system = True
+    assert config.flags.dream_system is True

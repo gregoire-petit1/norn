@@ -18,6 +18,7 @@ from rich.prompt import Confirm, Prompt
 from norn.core.agent import AgentLoop
 from norn.core.config import NornConfig
 from norn.core.llm import LiteLLMProvider
+from norn.flags.registry import FeatureFlag, FeatureFlagRegistry
 from norn.permissions.checker import PermissionChecker
 from norn.permissions.classifier import RiskClassifier
 
@@ -36,9 +37,9 @@ app = typer.Typer(name="norn", help="Norn - the coding agent that weaves your de
 console = Console()
 
 
-def _build_registry() -> ToolRegistry:
+def _build_registry(flag_registry: FeatureFlagRegistry | None = None) -> ToolRegistry:
     """Build the default tool registry."""
-    registry = ToolRegistry()
+    registry = ToolRegistry(flag_registry=flag_registry)
     registry.register(BashTool())
     registry.register(FileReadTool())
     registry.register(FileWriteTool())
@@ -79,14 +80,34 @@ def _build_permission_checker(config: NornConfig) -> PermissionChecker:
     )
 
 
+def _build_flag_registry(config: NornConfig) -> FeatureFlagRegistry:
+    """Build the feature flag registry from config."""
+    registry = FeatureFlagRegistry(
+        flags={
+            "dream_system": FeatureFlag("dream_system", False, "Memory consolidation"),
+            "coordinator": FeatureFlag("coordinator", False, "Multi-agent mode"),
+            "ml_tools": FeatureFlag("ml_tools", True, "MLOps-specific tools"),
+        }
+    )
+    registry.apply_config(
+        {
+            "dream_system": config.flags.dream_system,
+            "coordinator": config.flags.coordinator,
+            "ml_tools": config.flags.ml_tools,
+        }
+    )
+    return registry
+
+
 @app.command()
 def chat() -> None:
     """Start an interactive chat session."""
     config = NornConfig.load()
     config.apply_env_overrides()
 
+    flag_registry = _build_flag_registry(config)
     provider = _build_provider(config)
-    registry = _build_registry()
+    registry = _build_registry(flag_registry)
     checker = _build_permission_checker(config)
     agent = AgentLoop(
         llm=provider,
@@ -136,8 +157,9 @@ def run(prompt: str = typer.Argument(help="One-shot prompt to execute")) -> None
     config = NornConfig.load()
     config.apply_env_overrides()
 
+    flag_registry = _build_flag_registry(config)
     provider = _build_provider(config)
-    registry = _build_registry()
+    registry = _build_registry(flag_registry)
     checker = _build_permission_checker(config)
     agent = AgentLoop(
         llm=provider,
@@ -157,7 +179,10 @@ def run(prompt: str = typer.Argument(help="One-shot prompt to execute")) -> None
 @app.command()
 def tools() -> None:
     """List available tools."""
-    registry = _build_registry()
+    config = NornConfig.load()
+    config.apply_env_overrides()
+    flag_registry = _build_flag_registry(config)
+    registry = _build_registry(flag_registry)
     console.print("[bold]Available tools:[/bold]\n")
     for tool in registry.list_tools():
         risk_color = {"low": "green", "medium": "yellow", "high": "red"}[tool.risk_level.value]
