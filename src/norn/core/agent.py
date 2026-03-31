@@ -1,0 +1,83 @@
+"""Core agent loop for Norn."""
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+from norn.core.models import LLMResponse, Message, Role, ToolCall
+from norn.tools.base import ToolContext, ToolResult
+
+if TYPE_CHECKING:
+    from norn.tools.registry import ToolRegistry
+
+
+class AgentLoop:
+    """The main agent loop: message -> LLM -> tool calls -> repeat."""
+
+    MAX_TOOL_ROUNDS = 25  # Safety limit
+
+    def __init__(
+        self,
+        llm: object,
+        registry: ToolRegistry,
+        system_prompt: str = "You are Norn, a helpful coding agent.",
+        cwd: str = ".",
+    ) -> None:
+        self.llm = llm
+        self.registry = registry
+        self.system_prompt = system_prompt
+        self.ctx = ToolContext(cwd=cwd)
+        self.history: list[Message] = []
+
+    async def run(self, user_input: str) -> LLMResponse:
+        """Run one turn of the agent loop."""
+        self.history.append(Message(role=Role.USER, content=user_input))
+
+        messages = [
+            Message(role=Role.SYSTEM, content=self.system_prompt),
+            *self.history,
+        ]
+
+        for _round in range(self.MAX_TOOL_ROUNDS):
+            response = await self.llm.complete(
+                messages=messages,
+                tools=self.registry.get_schemas() or None,
+            )
+
+            if not response.has_tool_calls:
+                self.history.append(Message(role=Role.ASSISTANT, content=response.content))
+                return response
+
+            # Process tool calls
+            assistant_msg = Message(
+                role=Role.ASSISTANT,
+                content=response.content,
+                tool_calls=response.tool_calls,
+            )
+            messages.append(assistant_msg)
+
+            for call in response.tool_calls:
+                result = await self._execute_tool(call)
+                tool_msg = Message(
+                    role=Role.TOOL,
+                    content=result.output or result.error or "",
+                    tool_call_id=call.id,
+                )
+                messages.append(tool_msg)
+
+        # Safety: max rounds reached
+        final = LLMResponse(content="[Max tool rounds reached]")
+        self.history.append(Message(role=Role.ASSISTANT, content=final.content))
+        return final
+
+    async def _execute_tool(self, call: ToolCall) -> ToolResult:
+        """Execute a single tool call."""
+        tool = self.registry.get(call.name)
+        if tool is None:
+            return ToolResult(error=f"Unknown tool: {call.name}")
+
+        try:
+            input_obj = tool.input_model(**call.arguments)
+            return await tool.execute(input_obj, self.ctx)
+        except Exception as e:
+            return ToolResult(error=f"Tool execution error: {e}")
