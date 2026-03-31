@@ -8,6 +8,8 @@ from norn.core.models import LLMResponse, Message, Role, ToolCall
 from norn.tools.base import ToolContext, ToolResult
 
 if TYPE_CHECKING:
+    from norn.memory.session_logger import SessionLogger
+    from norn.memory.store import MemoryStore
     from norn.permissions.checker import PermissionChecker
     from norn.tools.registry import ToolRegistry
 
@@ -24,6 +26,8 @@ class AgentLoop:
         system_prompt: str = "You are Norn, a helpful coding agent.",
         cwd: str = ".",
         permission_checker: PermissionChecker | None = None,
+        memory_store: MemoryStore | None = None,
+        session_logger: SessionLogger | None = None,
     ) -> None:
         self.llm = llm
         self.registry = registry
@@ -31,13 +35,28 @@ class AgentLoop:
         self.ctx = ToolContext(cwd=cwd)
         self.history: list[Message] = []
         self.permission_checker = permission_checker
+        self.memory_store = memory_store
+        self.session_logger = session_logger
+        # Session stats
+        self.user_message_count = 0
+        self.tool_call_count = 0
+
+    def _build_system_prompt(self) -> str:
+        """Build system prompt with optional memory injection."""
+        prompt = self.system_prompt
+        if self.memory_store is not None:
+            memory_content = self.memory_store.read_memory()
+            if memory_content.strip():
+                prompt += "\n\n## Persistent Memory\n\n" + memory_content
+        return prompt
 
     async def run(self, user_input: str) -> LLMResponse:
         """Run one turn of the agent loop."""
+        self.user_message_count += 1
         self.history.append(Message(role=Role.USER, content=user_input))
 
         messages = [
-            Message(role=Role.SYSTEM, content=self.system_prompt),
+            Message(role=Role.SYSTEM, content=self._build_system_prompt()),
             *self.history,
         ]
 
@@ -60,6 +79,7 @@ class AgentLoop:
             messages.append(assistant_msg)
 
             for call in response.tool_calls:
+                self.tool_call_count += 1
                 result = await self._execute_tool(call)
                 tool_msg = Message(
                     role=Role.TOOL,

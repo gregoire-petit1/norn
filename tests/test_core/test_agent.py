@@ -8,6 +8,9 @@ from pydantic import BaseModel
 from norn.core.agent import AgentLoop
 from norn.core.config import PermissionMode
 from norn.core.models import LLMResponse, TokenUsage, ToolCall
+from norn.memory.models import MemoryConfig
+from norn.memory.session_logger import SessionLogger
+from norn.memory.store import MemoryStore
 from norn.permissions.checker import PermissionChecker
 from norn.permissions.classifier import RiskClassifier
 from norn.tools.base import RiskLevel, ToolContext, ToolResult
@@ -215,3 +218,76 @@ async def test_agent_no_permission_checker_allows_all(registry):
     agent = AgentLoop(llm=llm, registry=registry)
     result = await agent.run("echo")
     assert result.content == "done"
+
+
+# --- Memory integration fixtures ---
+
+
+@pytest.fixture
+def memory_store(tmp_path):
+    config = MemoryConfig(memory_dir=tmp_path / "memory")
+    store = MemoryStore(config)
+    store.ensure_dirs()
+    store.write_memory("# Norn Memory\n\n- User likes Python\n- Project: Norn agent\n")
+    return store
+
+
+@pytest.fixture
+def session_logger(memory_store):
+    return SessionLogger(memory_store)
+
+
+# --- Memory integration tests ---
+
+
+@pytest.mark.asyncio
+async def test_agent_injects_memory_into_system_prompt(registry, memory_store):
+    """When memory_store is provided, MEMORY.md is added to system prompt."""
+    llm = AsyncMock()
+    llm.complete = AsyncMock(
+        return_value=LLMResponse(content="I know you like Python!", tool_calls=[])
+    )
+
+    agent = AgentLoop(llm=llm, registry=registry, memory_store=memory_store)
+    await agent.run("What do you know about me?")
+
+    # Check that the system prompt sent to LLM includes memory
+    call_args = llm.complete.call_args
+    messages = call_args.kwargs.get("messages") or call_args.args[0]
+    system_msg = messages[0]
+    assert "User likes Python" in system_msg.content
+
+
+@pytest.mark.asyncio
+async def test_agent_tracks_session_stats(registry, memory_store, session_logger):
+    """Agent tracks message and tool call counts for session logging."""
+    llm = AsyncMock()
+    llm.complete = AsyncMock(
+        side_effect=[
+            LLMResponse(
+                content=None,
+                tool_calls=[ToolCall(id="c1", name="echo", arguments={"text": "hi"})],
+            ),
+            LLMResponse(content="Done.", tool_calls=[]),
+        ]
+    )
+
+    agent = AgentLoop(
+        llm=llm,
+        registry=registry,
+        memory_store=memory_store,
+        session_logger=session_logger,
+    )
+    await agent.run("echo hi")
+    assert agent.tool_call_count == 1
+    assert agent.user_message_count == 1
+
+
+@pytest.mark.asyncio
+async def test_agent_without_memory_still_works(registry):
+    """Backward compatibility: agent works without memory."""
+    llm = AsyncMock()
+    llm.complete = AsyncMock(return_value=LLMResponse(content="hello", tool_calls=[]))
+    agent = AgentLoop(llm=llm, registry=registry)
+    result = await agent.run("hi")
+    assert result.content == "hello"
