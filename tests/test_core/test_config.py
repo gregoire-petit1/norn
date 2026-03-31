@@ -28,6 +28,16 @@ def test_config_env_override(monkeypatch):
     assert config.llm.model == "gpt-4o"
 
 
+def test_config_env_override_permission_mode(monkeypatch):
+    """Env override for permission mode should produce a proper PermissionMode enum."""
+    monkeypatch.setenv("NORN_PERMISSION_MODE", "yolo")
+    config = NornConfig()
+    config.apply_env_overrides()
+    assert config.permissions.mode == PermissionMode.YOLO
+    # Crucially, .value must work (it failed before fix when mode was a raw str)
+    assert config.permissions.mode.value == "yolo"
+
+
 def test_flag_env_overrides():
     """Feature flags should be overridable via config."""
     config = NornConfig()

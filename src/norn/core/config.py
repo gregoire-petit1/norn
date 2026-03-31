@@ -81,7 +81,7 @@ class NornConfig(BaseModel):
 
     def apply_env_overrides(self) -> None:
         """Apply environment variable overrides."""
-        env_map = {
+        env_map: dict[str, tuple[str, str]] = {
             "NORN_LLM_PROVIDER": ("llm", "provider"),
             "NORN_LLM_MODEL": ("llm", "model"),
             "NORN_PERMISSION_MODE": ("permissions", "mode"),
@@ -89,4 +89,10 @@ class NornConfig(BaseModel):
         for env_key, (section, field) in env_map.items():
             value = os.environ.get(env_key)
             if value is not None:
-                setattr(getattr(self, section), field, value)
+                section_obj = getattr(self, section)
+                # Use Pydantic's field validation to ensure proper type coercion
+                # (e.g., str -> PermissionMode enum)
+                validated = type(section_obj).model_validate(
+                    {**section_obj.model_dump(), field: value}
+                )
+                setattr(self, section, validated)
