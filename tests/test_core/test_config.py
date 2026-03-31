@@ -49,3 +49,21 @@ def test_memory_config_custom():
     config = NornConfig(memory={"dream_interval_hours": 12, "dream_min_sessions": 3})
     assert config.memory.dream_interval_hours == 12
     assert config.memory.dream_min_sessions == 3
+
+
+def test_coordinator_config_defaults():
+    """NornConfig should have coordinator config with defaults."""
+    config = NornConfig()
+    assert config.coordinator.enabled is False
+    assert config.coordinator.activation_threshold == 2
+    assert config.coordinator.max_workers_per_phase == 5
+
+
+def test_coordinator_config_custom():
+    """Coordinator config should be overridable."""
+    config = NornConfig(
+        coordinator={"enabled": True, "activation_threshold": 1, "max_workers_per_phase": 3}
+    )
+    assert config.coordinator.enabled is True
+    assert config.coordinator.activation_threshold == 1
+    assert config.coordinator.max_workers_per_phase == 3

@@ -45,11 +45,19 @@ class MemorySystemConfig(BaseModel):
     dream_model: str | None = None  # None = use main LLM
 
 
+class CoordinatorConfig(BaseModel):
+    enabled: bool = False
+    activation_threshold: int = 2
+    max_workers_per_phase: int = 5
+    worker_model: str | None = None  # None = use main LLM
+
+
 class NornConfig(BaseModel):
     llm: LLMConfig = LLMConfig()
     permissions: PermissionsConfig = PermissionsConfig()
     flags: FlagsConfig = FlagsConfig()
     memory: MemorySystemConfig = MemorySystemConfig()
+    coordinator: CoordinatorConfig = CoordinatorConfig()
 
     @classmethod
     def from_yaml(cls, path: Path) -> NornConfig:
