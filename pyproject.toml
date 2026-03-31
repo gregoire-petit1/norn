@@ -11,6 +11,7 @@ dependencies = [
     "litellm>=1.50",
     "pyyaml>=6.0",
     "aiofiles>=24.0",
+    "filelock>=3.15",
 ]
 
 [project.optional-dependencies]
