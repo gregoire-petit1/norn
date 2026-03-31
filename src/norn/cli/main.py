@@ -4,15 +4,26 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+from dotenv import load_dotenv
+
+load_dotenv()
 
 import typer
 from rich.console import Console
 from rich.markdown import Markdown
-from rich.prompt import Prompt
+from rich.prompt import Confirm, Prompt
 
 from norn.core.agent import AgentLoop
 from norn.core.config import NornConfig
 from norn.core.llm import LiteLLMProvider
+from norn.permissions.checker import PermissionChecker
+from norn.permissions.classifier import RiskClassifier
+
+if TYPE_CHECKING:
+    from norn.permissions.models import PermissionRequest
+
 from norn.tools.bash_tool import BashTool
 from norn.tools.file_edit import FileEditTool
 from norn.tools.file_read import FileReadTool
@@ -47,6 +58,27 @@ def _build_provider(config: NornConfig) -> LiteLLMProvider:
     return LiteLLMProvider(model=model, api_base=config.llm.api_base)
 
 
+async def _cli_prompt_fn(request: PermissionRequest, description: str) -> bool:
+    """Prompt the user for permission approval via rich."""
+    risk_colors = {"low": "green", "medium": "yellow", "high": "red"}
+    color = risk_colors.get(request.risk_level, "white")
+    console.print(
+        f"\n[bold {color}]Permission required[/bold {color}]: "
+        f"[{color}]{request.tool_name}[/{color}] (risk: {request.risk_level})"
+    )
+    console.print(f"  {description}")
+    return Confirm.ask("  Allow?", default=True)
+
+
+def _build_permission_checker(config: NornConfig) -> PermissionChecker:
+    """Build the permission checker from config."""
+    return PermissionChecker(
+        mode=config.permissions.mode,
+        classifier=RiskClassifier(),
+        prompt_fn=_cli_prompt_fn,
+    )
+
+
 @app.command()
 def chat() -> None:
     """Start an interactive chat session."""
@@ -55,13 +87,16 @@ def chat() -> None:
 
     provider = _build_provider(config)
     registry = _build_registry()
+    checker = _build_permission_checker(config)
     agent = AgentLoop(
         llm=provider,
         registry=registry,
         cwd=str(Path.cwd()),
+        permission_checker=checker,
     )
 
     console.print("[bold]Norn[/bold] - the coding agent that weaves your destiny")
+    console.print(f"Permission mode: [bold]{config.permissions.mode.value}[/bold]")
     console.print("Type 'exit' or 'quit' to leave. Ctrl+C to interrupt.\n")
 
     async def _chat_loop() -> None:
@@ -103,10 +138,12 @@ def run(prompt: str = typer.Argument(help="One-shot prompt to execute")) -> None
 
     provider = _build_provider(config)
     registry = _build_registry()
+    checker = _build_permission_checker(config)
     agent = AgentLoop(
         llm=provider,
         registry=registry,
         cwd=str(Path.cwd()),
+        permission_checker=checker,
     )
 
     async def _run_once() -> None:
