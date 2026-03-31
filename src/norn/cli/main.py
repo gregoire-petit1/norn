@@ -324,6 +324,7 @@ def config() -> None:
     console.print(f"  Permissions:  {cfg.permissions.mode.value}")
     console.print(f"  Dream:        {'enabled' if cfg.flags.dream_system else 'disabled'}")
     console.print(f"  Coordinator:  {'enabled' if cfg.flags.coordinator else 'disabled'}")
+    console.print(f"  ML tools:     {'enabled' if cfg.flags.ml_tools else 'disabled'}")
     console.print(f"  Memory:       {'enabled' if cfg.memory.enabled else 'disabled'}")
     if cfg.memory.enabled:
         console.print(f"  Memory dir:   {cfg.memory.memory_dir}")

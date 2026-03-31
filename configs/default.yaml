@@ -23,4 +23,4 @@ permissions:
 flags:
   dream_system: false   # Phase 3
   coordinator: false    # Phase 4
-  ml_tools: false       # Future
+  ml_tools: true        # Phase 5: PyTorch/Polars/sklearn tools
