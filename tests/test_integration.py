@@ -5,7 +5,11 @@ from unittest.mock import AsyncMock
 import pytest
 
 from norn.core.agent import AgentLoop
+from norn.core.config import PermissionMode
 from norn.core.models import LLMResponse, ToolCall
+from norn.flags.registry import FeatureFlag, FeatureFlagRegistry
+from norn.permissions.checker import PermissionChecker
+from norn.permissions.classifier import RiskClassifier
 from norn.tools.bash_tool import BashTool
 from norn.tools.file_edit import FileEditTool
 from norn.tools.file_read import FileReadTool
@@ -111,3 +115,75 @@ async def test_schemas_valid_for_llm(full_registry):
         assert "description" in schema
         assert "parameters" in schema
         assert schema["parameters"]["type"] == "object"
+
+
+@pytest.mark.asyncio
+async def test_permission_blocks_destructive_bash():
+    """Full pipeline: bash rm -rf should be denied in interactive mode."""
+    checker = PermissionChecker(
+        mode=PermissionMode.INTERACTIVE,
+        classifier=RiskClassifier(),
+    )
+
+    registry = ToolRegistry()
+    registry.register(BashTool())
+
+    llm = AsyncMock()
+    llm.complete = AsyncMock(
+        side_effect=[
+            LLMResponse(
+                content=None,
+                tool_calls=[ToolCall(id="c1", name="bash", arguments={"command": "rm -rf /"})],
+            ),
+            LLMResponse(content="I couldn't do that.", tool_calls=[]),
+        ]
+    )
+
+    agent = AgentLoop(llm=llm, registry=registry, permission_checker=checker)
+    result = await agent.run("delete everything")
+    assert result.content == "I couldn't do that."
+
+
+@pytest.mark.asyncio
+async def test_feature_flag_hides_tool():
+    """Tool behind disabled flag should not appear in schemas sent to LLM."""
+    flag_registry = FeatureFlagRegistry(flags={"ml_tools": FeatureFlag("ml_tools", False)})
+    registry = ToolRegistry(flag_registry=flag_registry)
+
+    registry.register(BashTool(), feature_flag="ml_tools")
+
+    schemas = registry.get_schemas()
+    assert len(schemas) == 0  # Tool hidden
+
+    # Enable the flag
+    flag_registry.apply_config({"ml_tools": True})
+    registry._schema_cache = None  # Force rebuild
+    schemas = registry.get_schemas()
+    assert len(schemas) == 1
+
+
+@pytest.mark.asyncio
+async def test_yolo_mode_allows_destructive():
+    """Yolo mode should allow everything, even destructive commands."""
+    checker = PermissionChecker(
+        mode=PermissionMode.YOLO,
+        classifier=RiskClassifier(),
+    )
+
+    registry = ToolRegistry()
+    registry.register(BashTool())
+
+    llm = AsyncMock()
+    llm.complete = AsyncMock(
+        side_effect=[
+            LLMResponse(
+                content=None,
+                tool_calls=[ToolCall(id="c1", name="bash", arguments={"command": "echo safe"})],
+            ),
+            LLMResponse(content="Done.", tool_calls=[]),
+        ]
+    )
+
+    agent = AgentLoop(llm=llm, registry=registry, permission_checker=checker)
+    result = await agent.run("run a command")
+    assert result.content == "Done."
