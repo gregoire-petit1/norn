@@ -288,3 +288,121 @@ async def test_session_logger_records_and_counts(tmp_path):
     assert "s0" in daily_content
     assert "s1" in daily_content
     assert "s2" in daily_content
+
+
+# --- Phase 4: Coordinator integration tests ---
+
+
+@pytest.mark.asyncio
+async def test_coordinator_full_pipeline(tmp_path):
+    """Full coordinator pipeline: R->S->I->V with mock LLMs."""
+    from norn.coordinator.engine import CoordinatorEngine
+    from norn.coordinator.scratchpad import Scratchpad
+
+    scratchpad = Scratchpad(base_dir=tmp_path / "scratchpad")
+    scratchpad.ensure_dirs()
+    registry = ToolRegistry()
+
+    coordinator_llm = AsyncMock()
+    coordinator_llm.complete = AsyncMock(
+        side_effect=[
+            LLMResponse(
+                content=json.dumps(
+                    [
+                        {
+                            "worker_id": "r1",
+                            "task": "Research",
+                            "tools": [],
+                            "scratchpad_section": "r1.md",
+                        },
+                    ]
+                )
+            ),
+            LLMResponse(
+                content=json.dumps(
+                    [
+                        {
+                            "worker_id": "s1",
+                            "task": "Spec",
+                            "tools": [],
+                            "scratchpad_section": "s1.md",
+                        },
+                    ]
+                )
+            ),
+            LLMResponse(
+                content=json.dumps(
+                    [
+                        {
+                            "worker_id": "i1",
+                            "task": "Implement",
+                            "tools": [],
+                            "scratchpad_section": "i1.md",
+                        },
+                    ]
+                )
+            ),
+            LLMResponse(
+                content=json.dumps(
+                    [
+                        {
+                            "worker_id": "v1",
+                            "task": "Verify",
+                            "tools": [],
+                            "scratchpad_section": "v1.md",
+                        },
+                    ]
+                )
+            ),
+        ]
+    )
+    worker_llm = AsyncMock()
+    worker_llm.complete = AsyncMock(return_value=LLMResponse(content="Done.", tool_calls=[]))
+
+    engine = CoordinatorEngine(
+        coordinator_llm=coordinator_llm,
+        worker_llm=worker_llm,
+        registry=registry,
+        scratchpad=scratchpad,
+    )
+    result = await engine.coordinate("Refactor auth module across 5 files")
+    assert result.success is True
+    assert result.total_workers == 4
+
+
+def test_activation_heuristic_integration():
+    """Heuristic correctly identifies complex tasks."""
+    from norn.coordinator.heuristic import ActivationHeuristic
+
+    h = ActivationHeuristic(threshold=2)
+
+    # Simple task: should NOT activate
+    simple = h.evaluate("Fix typo in README")
+    assert simple.should_activate is False
+
+    # Complex task: should activate
+    complex_task = (
+        "Refactor the authentication module across multiple files. "
+        "The auth service in src/auth/service.py needs to be split into " + "x" * 500
+    )
+    complex_result = h.evaluate(complex_task)
+    assert complex_result.should_activate is True
+
+
+def test_scratchpad_isolation(tmp_path):
+    """Workers can only write to their assigned section."""
+    from norn.coordinator.scratchpad import Scratchpad
+
+    sp = Scratchpad(base_dir=tmp_path / "scratchpad")
+    sp.ensure_dirs()
+
+    # Worker writes to research
+    sp.write("research", "r1.md", "Research findings")
+    # Worker writes to implementation
+    sp.write("implementation", "i1.md", "Implementation output")
+
+    # Sections are isolated
+    assert sp.read("research", "r1.md") == "Research findings"
+    assert sp.read("research", "i1.md") is None
+    assert sp.read("implementation", "i1.md") == "Implementation output"
+    assert sp.read("implementation", "r1.md") is None
