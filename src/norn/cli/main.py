@@ -25,6 +25,9 @@ from norn.permissions.classifier import RiskClassifier
 if TYPE_CHECKING:
     from norn.permissions.models import PermissionRequest
 
+from norn.memory.models import MemoryConfig
+from norn.memory.session_logger import SessionLogger
+from norn.memory.store import MemoryStore
 from norn.tools.bash_tool import BashTool
 from norn.tools.file_edit import FileEditTool
 from norn.tools.file_read import FileReadTool
@@ -99,6 +102,20 @@ def _build_flag_registry(config: NornConfig) -> FeatureFlagRegistry:
     return registry
 
 
+def _build_memory_store(config: NornConfig) -> MemoryStore | None:
+    """Build memory store if memory is enabled."""
+    if not config.memory.enabled:
+        return None
+    mem_config = MemoryConfig(
+        memory_dir=Path(config.memory.memory_dir).expanduser(),
+        dream_interval_hours=config.memory.dream_interval_hours,
+        dream_min_sessions=config.memory.dream_min_sessions,
+    )
+    store = MemoryStore(mem_config)
+    store.ensure_dirs()
+    return store
+
+
 @app.command()
 def chat() -> None:
     """Start an interactive chat session."""
@@ -109,11 +126,15 @@ def chat() -> None:
     provider = _build_provider(config)
     registry = _build_registry(flag_registry)
     checker = _build_permission_checker(config)
+    memory_store = _build_memory_store(config)
+    session_logger = SessionLogger(memory_store) if memory_store else None
     agent = AgentLoop(
         llm=provider,
         registry=registry,
         cwd=str(Path.cwd()),
         permission_checker=checker,
+        memory_store=memory_store,
+        session_logger=session_logger,
     )
 
     console.print("[bold]Norn[/bold] - the coding agent that weaves your destiny")
@@ -161,11 +182,15 @@ def run(prompt: str = typer.Argument(help="One-shot prompt to execute")) -> None
     provider = _build_provider(config)
     registry = _build_registry(flag_registry)
     checker = _build_permission_checker(config)
+    memory_store = _build_memory_store(config)
+    session_logger = SessionLogger(memory_store) if memory_store else None
     agent = AgentLoop(
         llm=provider,
         registry=registry,
         cwd=str(Path.cwd()),
         permission_checker=checker,
+        memory_store=memory_store,
+        session_logger=session_logger,
     )
 
     async def _run_once() -> None:
@@ -174,6 +199,38 @@ def run(prompt: str = typer.Argument(help="One-shot prompt to execute")) -> None
             console.print(Markdown(response.content))
 
     asyncio.run(_run_once())
+
+
+@app.command()
+def dream() -> None:
+    """Manually trigger a memory consolidation dream."""
+    config = NornConfig.load()
+    config.apply_env_overrides()
+
+    store = _build_memory_store(config)
+    if store is None:
+        console.print("[yellow]Memory system is disabled.[/yellow]")
+        raise typer.Exit(1)
+
+    provider = _build_provider(config)
+
+    from norn.dream.engine import DreamEngine
+
+    engine = DreamEngine(store=store, llm=provider)
+
+    async def _dream() -> None:
+        with console.status("[dim]Dreaming...[/dim]"):
+            result = await engine.dream()
+        if result.success:
+            console.print(f"[green]Dream complete:[/green] {result.summary}")
+            if result.files_written:
+                console.print(f"  Written: {', '.join(result.files_written)}")
+            if result.files_pruned:
+                console.print(f"  Pruned: {', '.join(result.files_pruned)}")
+        else:
+            console.print(f"[red]Dream failed:[/red] {result.error}")
+
+    asyncio.run(_dream())
 
 
 @app.command()
@@ -203,6 +260,9 @@ def config() -> None:
     console.print(f"  Permissions:  {cfg.permissions.mode.value}")
     console.print(f"  Dream:        {'enabled' if cfg.flags.dream_system else 'disabled'}")
     console.print(f"  Coordinator:  {'enabled' if cfg.flags.coordinator else 'disabled'}")
+    console.print(f"  Memory:       {'enabled' if cfg.memory.enabled else 'disabled'}")
+    if cfg.memory.enabled:
+        console.print(f"  Memory dir:   {cfg.memory.memory_dir}")
 
 
 @app.command()
