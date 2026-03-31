@@ -1,13 +1,12 @@
 """Tests for core message and response models."""
 
-import pytest
 from norn.core.models import (
+    LLMResponse,
     Message,
     Role,
+    StreamChunk,
     ToolCall,
     ToolResult,
-    LLMResponse,
-    StreamChunk,
 )
 
 

@@ -1,10 +1,11 @@
 """Tests for LLM provider abstraction."""
 
+from unittest.mock import AsyncMock, MagicMock, patch
+
 import pytest
-from unittest.mock import AsyncMock, patch, MagicMock
 
 from norn.core.llm import LiteLLMProvider, build_tool_schemas
-from norn.core.models import Message, Role, LLMResponse, ToolCall
+from norn.core.models import LLMResponse, Message, Role
 
 
 @pytest.fixture

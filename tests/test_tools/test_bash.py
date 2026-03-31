@@ -2,8 +2,8 @@
 
 import pytest
 
-from norn.tools.bash_tool import BashTool, BashInput
 from norn.tools.base import RiskLevel, ToolContext
+from norn.tools.bash_tool import BashInput, BashTool
 
 
 @pytest.fixture

@@ -2,8 +2,8 @@
 
 import pytest
 
-from norn.tools.glob_tool import GlobTool, GlobInput
 from norn.tools.base import RiskLevel, ToolContext
+from norn.tools.glob_tool import GlobInput, GlobTool
 
 
 @pytest.fixture

@@ -1,9 +1,7 @@
 """Tests for configuration system."""
 
-import pytest
-from pathlib import Path
 
-from norn.core.config import NornConfig, LLMConfig, PermissionMode
+from norn.core.config import NornConfig, PermissionMode
 
 
 def test_default_config():

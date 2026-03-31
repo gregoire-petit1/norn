@@ -2,8 +2,8 @@
 
 import pytest
 
-from norn.tools.grep_tool import GrepTool, GrepInput
 from norn.tools.base import RiskLevel, ToolContext
+from norn.tools.grep_tool import GrepInput, GrepTool
 
 
 @pytest.fixture

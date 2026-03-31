@@ -2,8 +2,8 @@
 
 import pytest
 
-from norn.tools.file_write import FileWriteTool, FileWriteInput
 from norn.tools.base import RiskLevel, ToolContext
+from norn.tools.file_write import FileWriteInput, FileWriteTool
 
 
 @pytest.fixture

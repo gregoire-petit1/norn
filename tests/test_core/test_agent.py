@@ -1,13 +1,14 @@
 """Tests for the core agent loop."""
 
-import pytest
 from unittest.mock import AsyncMock
 
+import pytest
+from pydantic import BaseModel
+
 from norn.core.agent import AgentLoop
-from norn.core.models import LLMResponse, ToolCall, TokenUsage
+from norn.core.models import LLMResponse, TokenUsage, ToolCall
 from norn.tools.base import RiskLevel, ToolContext, ToolResult
 from norn.tools.registry import ToolRegistry
-from pydantic import BaseModel
 
 
 class EchoInput(BaseModel):

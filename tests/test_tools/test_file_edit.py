@@ -2,8 +2,8 @@
 
 import pytest
 
-from norn.tools.file_edit import FileEditTool, FileEditInput
 from norn.tools.base import RiskLevel, ToolContext
+from norn.tools.file_edit import FileEditInput, FileEditTool
 
 
 @pytest.fixture

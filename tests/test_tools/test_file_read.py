@@ -1,10 +1,10 @@
 """Tests for FileReadTool."""
 
-import pytest
-from pathlib import Path
 
-from norn.tools.file_read import FileReadTool, FileReadInput
+import pytest
+
 from norn.tools.base import RiskLevel, ToolContext
+from norn.tools.file_read import FileReadInput, FileReadTool
 
 
 @pytest.fixture
