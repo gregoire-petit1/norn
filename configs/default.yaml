@@ -3,7 +3,14 @@ llm:
   provider: "ollama"
   model: "qwen2.5-coder:14b"
   fallback_provider: "openrouter"
-  fallback_model: "anthropic/claude-sonnet-4-20250514"
+  fallback_model: "nvidia/nemotron-3-super-120b-a12b:free"
+  # Verified free OpenRouter models with tool support:
+  #   nvidia/nemotron-3-super-120b-a12b:free  (Nvidia, 262k ctx, fast)
+  #   qwen/qwen3.6-plus-preview:free          (Alibaba, 1M ctx, reasoning)
+  #   qwen/qwen3-coder:free                   (Alibaba, 262k ctx, code-focused)
+  #   stepfun/step-3.5-flash:free             (StepFun, 256k ctx)
+  # Paid models (require credits):
+  #   anthropic/claude-sonnet-4
   temperature: 0.0
   max_tokens: 4096
 

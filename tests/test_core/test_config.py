@@ -34,3 +34,18 @@ def test_flag_env_overrides():
     assert config.flags.dream_system is False
     config.flags.dream_system = True
     assert config.flags.dream_system is True
+
+
+def test_memory_config_defaults():
+    """NornConfig should have memory config with defaults."""
+    config = NornConfig()
+    assert config.memory.enabled is True
+    assert config.memory.dream_interval_hours == 24
+    assert config.memory.dream_min_sessions == 5
+
+
+def test_memory_config_custom():
+    """Memory config should be overridable."""
+    config = NornConfig(memory={"dream_interval_hours": 12, "dream_min_sessions": 3})
+    assert config.memory.dream_interval_hours == 12
+    assert config.memory.dream_min_sessions == 3

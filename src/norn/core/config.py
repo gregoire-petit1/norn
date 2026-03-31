@@ -37,10 +37,19 @@ class FlagsConfig(BaseModel):
     ml_tools: bool = False
 
 
+class MemorySystemConfig(BaseModel):
+    enabled: bool = True
+    memory_dir: str = "~/.norn/memory"
+    dream_interval_hours: int = 24
+    dream_min_sessions: int = 5
+    dream_model: str | None = None  # None = use main LLM
+
+
 class NornConfig(BaseModel):
     llm: LLMConfig = LLMConfig()
     permissions: PermissionsConfig = PermissionsConfig()
     flags: FlagsConfig = FlagsConfig()
+    memory: MemorySystemConfig = MemorySystemConfig()
 
     @classmethod
     def from_yaml(cls, path: Path) -> NornConfig:
