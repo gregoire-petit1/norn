@@ -1,0 +1,16 @@
+# configs/default.yaml
+llm:
+  provider: "ollama"
+  model: "qwen2.5-coder:14b"
+  fallback_provider: "openrouter"
+  fallback_model: "anthropic/claude-sonnet-4-20250514"
+  temperature: 0.0
+  max_tokens: 4096
+
+permissions:
+  mode: "interactive"  # interactive | auto | yolo | strict
+
+flags:
+  dream_system: false   # Phase 3
+  coordinator: false    # Phase 4
+  ml_tools: false       # Future
