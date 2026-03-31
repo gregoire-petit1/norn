@@ -8,6 +8,7 @@ from norn.core.models import LLMResponse, Message, Role, ToolCall
 from norn.tools.base import ToolContext, ToolResult
 
 if TYPE_CHECKING:
+    from norn.permissions.checker import PermissionChecker
     from norn.tools.registry import ToolRegistry
 
 
@@ -22,12 +23,14 @@ class AgentLoop:
         registry: ToolRegistry,
         system_prompt: str = "You are Norn, a helpful coding agent.",
         cwd: str = ".",
+        permission_checker: PermissionChecker | None = None,
     ) -> None:
         self.llm = llm
         self.registry = registry
         self.system_prompt = system_prompt
         self.ctx = ToolContext(cwd=cwd)
         self.history: list[Message] = []
+        self.permission_checker = permission_checker
 
     async def run(self, user_input: str) -> LLMResponse:
         """Run one turn of the agent loop."""
@@ -71,10 +74,24 @@ class AgentLoop:
         return final
 
     async def _execute_tool(self, call: ToolCall) -> ToolResult:
-        """Execute a single tool call."""
+        """Execute a single tool call, with optional permission check."""
         tool = self.registry.get(call.name)
         if tool is None:
             return ToolResult(error=f"Unknown tool: {call.name}")
+
+        # Permission check
+        if self.permission_checker is not None:
+            from norn.permissions.models import PermissionRequest
+
+            request = PermissionRequest(
+                tool_name=call.name,
+                risk_level=tool.risk_level.value,
+                arguments=call.arguments,
+            )
+            decision = await self.permission_checker.check(request)
+            if not decision.approved:
+                reason = decision.reason or "Permission denied"
+                return ToolResult(error=f"Permission denied: {reason}")
 
         try:
             input_obj = tool.input_model(**call.arguments)

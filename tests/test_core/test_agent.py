@@ -6,7 +6,10 @@ import pytest
 from pydantic import BaseModel
 
 from norn.core.agent import AgentLoop
+from norn.core.config import PermissionMode
 from norn.core.models import LLMResponse, TokenUsage, ToolCall
+from norn.permissions.checker import PermissionChecker
+from norn.permissions.classifier import RiskClassifier
 from norn.tools.base import RiskLevel, ToolContext, ToolResult
 from norn.tools.registry import ToolRegistry
 
@@ -25,10 +28,33 @@ class EchoTool:
         return ToolResult(output=f"echo: {input.text}")
 
 
+class WriteInput(BaseModel):
+    path: str
+    content: str
+
+
+class WriteTool:
+    name = "file_write"
+    description = "Write a file"
+    risk_level = RiskLevel.MEDIUM
+    input_model = WriteInput
+
+    async def execute(self, input: WriteInput, ctx: ToolContext) -> ToolResult:
+        return ToolResult(output=f"wrote to {input.path}")
+
+
 @pytest.fixture
 def registry():
     reg = ToolRegistry()
     reg.register(EchoTool())
+    return reg
+
+
+@pytest.fixture
+def registry_with_write():
+    reg = ToolRegistry()
+    reg.register(EchoTool())
+    reg.register(WriteTool())
     return reg
 
 
@@ -109,3 +135,83 @@ async def test_agent_history_grows(mock_llm_text_only, registry):
     await agent.run("second")
     # History should contain: user1, assistant1, user2, assistant2
     assert len(agent.history) == 4
+
+
+@pytest.mark.asyncio
+async def test_agent_permission_denied(registry_with_write):
+    """When permission is denied, tool should not execute."""
+    checker = PermissionChecker(
+        mode=PermissionMode.INTERACTIVE,
+        classifier=RiskClassifier(),
+        prompt_fn=None,  # No prompt = auto-deny for MEDIUM+
+    )
+
+    llm = AsyncMock()
+    llm.complete = AsyncMock(
+        side_effect=[
+            LLMResponse(
+                content=None,
+                tool_calls=[
+                    ToolCall(
+                        id="c1",
+                        name="file_write",
+                        arguments={"path": "test.py", "content": "hello"},
+                    )
+                ],
+            ),
+            LLMResponse(content="Permission was denied.", tool_calls=[]),
+        ]
+    )
+
+    agent = AgentLoop(llm=llm, registry=registry_with_write, permission_checker=checker)
+    result = await agent.run("write a file")
+    assert result.content == "Permission was denied."
+    assert llm.complete.call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_agent_permission_approved_yolo(registry_with_write):
+    """In yolo mode, everything is approved."""
+    checker = PermissionChecker(
+        mode=PermissionMode.YOLO,
+        classifier=RiskClassifier(),
+    )
+
+    llm = AsyncMock()
+    llm.complete = AsyncMock(
+        side_effect=[
+            LLMResponse(
+                content=None,
+                tool_calls=[
+                    ToolCall(
+                        id="c1",
+                        name="file_write",
+                        arguments={"path": "test.py", "content": "hello"},
+                    )
+                ],
+            ),
+            LLMResponse(content="File written.", tool_calls=[]),
+        ]
+    )
+
+    agent = AgentLoop(llm=llm, registry=registry_with_write, permission_checker=checker)
+    result = await agent.run("write a file")
+    assert result.content == "File written."
+
+
+@pytest.mark.asyncio
+async def test_agent_no_permission_checker_allows_all(registry):
+    """Without a permission checker, all tools execute (backward-compatible)."""
+    llm = AsyncMock()
+    llm.complete = AsyncMock(
+        side_effect=[
+            LLMResponse(
+                content=None,
+                tool_calls=[ToolCall(id="c1", name="echo", arguments={"text": "hi"})],
+            ),
+            LLMResponse(content="done", tool_calls=[]),
+        ]
+    )
+    agent = AgentLoop(llm=llm, registry=registry)
+    result = await agent.run("echo")
+    assert result.content == "done"
