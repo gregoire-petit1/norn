@@ -1,0 +1,102 @@
+"""Permission checker: enforces permission modes before tool execution."""
+
+from __future__ import annotations
+
+from collections.abc import Awaitable, Callable
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from norn.core.config import PermissionMode
+    from norn.permissions.classifier import RiskClassifier
+
+from norn.permissions.models import PermissionDecision, PermissionRequest
+
+# Type alias for the user-prompt callback
+PromptFn = Callable[[PermissionRequest, str], Awaitable[bool]]
+
+# Risk level ordering for comparison
+_RISK_ORDER = {"low": 0, "medium": 1, "high": 2}
+
+
+class PermissionChecker:
+    """Check permissions based on mode, risk level, and contextual escalation."""
+
+    def __init__(
+        self,
+        mode: PermissionMode,
+        classifier: RiskClassifier,
+        prompt_fn: PromptFn | None = None,
+    ) -> None:
+        self.mode = mode
+        self.classifier = classifier
+        self.prompt_fn = prompt_fn
+
+    async def check(self, request: PermissionRequest) -> PermissionDecision:
+        """Check whether a tool invocation is permitted."""
+        # Step 1: Escalate risk if needed
+        escalation = self.classifier.escalate(
+            tool_name=request.tool_name,
+            base_risk=request.risk_level,
+            arguments=request.arguments,
+        )
+        effective_risk = escalation.risk
+
+        # Step 2: Apply mode-specific rules
+        return await self._apply_mode(request, effective_risk, escalation.is_destructive)
+
+    async def _apply_mode(
+        self,
+        request: PermissionRequest,
+        effective_risk: str,
+        is_destructive: bool,
+    ) -> PermissionDecision:
+        """Apply the permission mode rules."""
+        mode = self.mode.value
+
+        if mode == "yolo":
+            return PermissionDecision(approved=True)
+
+        if mode == "strict":
+            # Destructive = always denied, no prompt
+            if is_destructive:
+                return PermissionDecision(
+                    approved=False,
+                    reason="Destructive command denied in strict mode",
+                )
+            # Everything else needs prompt
+            return await self._prompt_or_deny(request, effective_risk)
+
+        if mode == "auto":
+            # LOW + MEDIUM auto-approved, HIGH needs prompt
+            if _RISK_ORDER.get(effective_risk, 2) <= _RISK_ORDER["medium"]:
+                return PermissionDecision(approved=True)
+            return await self._prompt_or_deny(request, effective_risk)
+
+        # interactive (default)
+        # LOW auto-approved, MEDIUM + HIGH need prompt
+        if _RISK_ORDER.get(effective_risk, 2) <= _RISK_ORDER["low"]:
+            return PermissionDecision(approved=True)
+        return await self._prompt_or_deny(request, effective_risk)
+
+    async def _prompt_or_deny(
+        self,
+        request: PermissionRequest,
+        effective_risk: str,
+    ) -> PermissionDecision:
+        """Prompt user if callback available, otherwise deny."""
+        if self.prompt_fn is None:
+            return PermissionDecision(
+                approved=False,
+                reason=f"Tool '{request.tool_name}' (risk: {effective_risk}) requires approval",
+                escalated_risk=effective_risk if effective_risk != request.risk_level else None,
+            )
+
+        description = (
+            f"Tool '{request.tool_name}' (risk: {effective_risk}) "
+            f"wants to execute with args: {request.arguments}"
+        )
+        approved = await self.prompt_fn(request, description)
+        return PermissionDecision(
+            approved=approved,
+            reason=None if approved else "User denied",
+        )
