@@ -234,6 +234,59 @@ def dream() -> None:
 
 
 @app.command()
+def coordinate(prompt: str = typer.Argument(help="Task to coordinate")) -> None:
+    """Run a task using multi-agent coordinator mode."""
+    config = NornConfig.load()
+    config.apply_env_overrides()
+
+    if not config.coordinator.enabled:
+        console.print(
+            "[yellow]Coordinator is disabled. "
+            "Enable with coordinator.enabled=true in config.[/yellow]"
+        )
+        raise typer.Exit(1)
+
+    provider = _build_provider(config)
+    flag_registry = _build_flag_registry(config)
+    registry = _build_registry(flag_registry)
+
+    import tempfile
+
+    from norn.coordinator.engine import CoordinatorEngine
+    from norn.coordinator.scratchpad import Scratchpad
+
+    scratchpad_dir = Path(tempfile.mkdtemp(prefix="norn-coord-"))
+    scratchpad = Scratchpad(base_dir=scratchpad_dir)
+    scratchpad.ensure_dirs()
+
+    engine = CoordinatorEngine(
+        coordinator_llm=provider,
+        worker_llm=provider,
+        registry=registry,
+        scratchpad=scratchpad,
+        cwd=str(Path.cwd()),
+    )
+
+    async def _coordinate() -> None:
+        with console.status("[dim]Coordinating...[/dim]"):
+            result = await engine.coordinate(prompt)
+
+        if result.success:
+            console.print(f"[green]Coordinator complete:[/green] {result.summary}")
+            for phase, results in result.phase_results.items():
+                console.print(f"\n  [bold]{phase.value.upper()}[/bold]:")
+                for wr in results:
+                    status = "[green]OK[/green]" if wr.success else "[red]FAIL[/red]"
+                    console.print(
+                        f"    {status} {wr.worker_id}: {(wr.output or wr.error or '')[:80]}"
+                    )
+        else:
+            console.print(f"[red]Coordinator failed:[/red] {result.error}")
+
+    asyncio.run(_coordinate())
+
+
+@app.command()
 def tools() -> None:
     """List available tools."""
     config = NornConfig.load()
@@ -263,6 +316,9 @@ def config() -> None:
     console.print(f"  Memory:       {'enabled' if cfg.memory.enabled else 'disabled'}")
     if cfg.memory.enabled:
         console.print(f"  Memory dir:   {cfg.memory.memory_dir}")
+    if cfg.coordinator.enabled:
+        console.print(f"  Coord threshold: {cfg.coordinator.activation_threshold}")
+        console.print(f"  Max workers/phase: {cfg.coordinator.max_workers_per_phase}")
 
 
 @app.command()
