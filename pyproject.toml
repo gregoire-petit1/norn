@@ -22,6 +22,11 @@ dev = [
     "ruff>=0.8",
     "mypy>=1.13",
 ]
+ml = [
+    "torch>=2.0",
+    "polars>=1.0",
+    "scikit-learn>=1.5",
+]
 
 [project.scripts]
 norn = "norn.cli.main:app"
