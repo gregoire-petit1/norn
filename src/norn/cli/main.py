@@ -34,6 +34,11 @@ from norn.tools.file_read import FileReadTool
 from norn.tools.file_write import FileWriteTool
 from norn.tools.glob_tool import GlobTool
 from norn.tools.grep_tool import GrepTool
+from norn.tools.ml.dataset_inspector import DatasetInspectorTool
+from norn.tools.ml.model_card import ModelCardTool
+from norn.tools.ml.model_eval import ModelEvalTool
+from norn.tools.ml.model_inspector import ModelInspectorTool
+from norn.tools.ml.tensor_inspector import TensorInspectorTool
 from norn.tools.registry import ToolRegistry
 
 app = typer.Typer(name="norn", help="Norn - the coding agent that weaves your destiny")
@@ -49,6 +54,12 @@ def _build_registry(flag_registry: FeatureFlagRegistry | None = None) -> ToolReg
     registry.register(FileEditTool())
     registry.register(GlobTool())
     registry.register(GrepTool())
+    # ML tools (gated behind ml_tools feature flag)
+    registry.register(ModelInspectorTool(), feature_flag="ml_tools")
+    registry.register(TensorInspectorTool(), feature_flag="ml_tools")
+    registry.register(DatasetInspectorTool(), feature_flag="ml_tools")
+    registry.register(ModelEvalTool(), feature_flag="ml_tools")
+    registry.register(ModelCardTool(), feature_flag="ml_tools")
     return registry
 
 
