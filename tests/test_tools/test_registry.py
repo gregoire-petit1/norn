@@ -3,6 +3,7 @@
 import pytest
 from pydantic import BaseModel
 
+from norn.flags.registry import FeatureFlag, FeatureFlagRegistry
 from norn.tools.base import RiskLevel, ToolContext, ToolResult
 from norn.tools.registry import ToolRegistry
 
@@ -84,3 +85,38 @@ async def test_tool_execution(mock_tool):
     result = await mock_tool.execute(MockInput(query="test"), ctx)
     assert result.output == "result: test"
     assert result.is_error is False
+
+
+def test_flagged_tool_excluded_when_disabled():
+    """Tool gated behind a disabled flag should not appear in schemas or list."""
+    flag_registry = FeatureFlagRegistry(
+        flags={"ml_tools": FeatureFlag(name="ml_tools", default=False)}
+    )
+    registry = ToolRegistry(flag_registry=flag_registry)
+    registry.register(MockTool(), feature_flag="ml_tools")
+
+    assert registry.list_tools() == []
+    assert registry.get_schemas() == []
+    # But get() still works (for error messages)
+    assert registry.get("mock_tool") is not None
+
+
+def test_flagged_tool_included_when_enabled():
+    """Tool gated behind an enabled flag should appear normally."""
+    flag_registry = FeatureFlagRegistry(
+        flags={"ml_tools": FeatureFlag(name="ml_tools", default=True)}
+    )
+    registry = ToolRegistry(flag_registry=flag_registry)
+    registry.register(MockTool(), feature_flag="ml_tools")
+
+    assert len(registry.list_tools()) == 1
+    assert len(registry.get_schemas()) == 1
+
+
+def test_unflagged_tool_always_included():
+    """Tool without a flag is always included."""
+    flag_registry = FeatureFlagRegistry()
+    registry = ToolRegistry(flag_registry=flag_registry)
+    registry.register(MockTool())
+
+    assert len(registry.list_tools()) == 1
