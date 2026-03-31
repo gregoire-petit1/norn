@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from enum import StrEnum
+from typing import Any
 
 from pydantic import BaseModel, computed_field
 
@@ -21,19 +22,7 @@ class ToolCall(BaseModel):
 
     id: str
     name: str
-    arguments: dict
-
-
-class ToolResult(BaseModel):
-    """Result of a tool execution."""
-
-    output: str | None = None
-    error: str | None = None
-
-    @computed_field
-    @property
-    def is_error(self) -> bool:
-        return self.error is not None
+    arguments: dict[str, Any]
 
 
 class TokenUsage(BaseModel):

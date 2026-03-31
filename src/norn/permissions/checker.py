@@ -10,12 +10,13 @@ if TYPE_CHECKING:
     from norn.permissions.classifier import RiskClassifier
 
 from norn.permissions.models import PermissionDecision, PermissionRequest
+from norn.tools.base import RiskLevel
 
 # Type alias for the user-prompt callback
 PromptFn = Callable[[PermissionRequest, str], Awaitable[bool]]
 
 # Risk level ordering for comparison
-_RISK_ORDER = {"low": 0, "medium": 1, "high": 2}
+_RISK_ORDER = {RiskLevel.LOW.value: 0, RiskLevel.MEDIUM.value: 1, RiskLevel.HIGH.value: 2}
 
 
 class PermissionChecker:

@@ -15,9 +15,11 @@ from norn.coordinator.models import (
 from norn.coordinator.prompts import build_coordinator_system_prompt, build_phase_prompt
 from norn.coordinator.worker import Worker
 from norn.core.models import Message, Role
+from norn.core.utils import extract_json
 
 if TYPE_CHECKING:
     from norn.coordinator.scratchpad import Scratchpad
+    from norn.core.llm import LLMProvider
     from norn.tools.registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
@@ -35,8 +37,8 @@ class CoordinatorEngine:
 
     def __init__(
         self,
-        coordinator_llm: object,
-        worker_llm: object,
+        coordinator_llm: LLMProvider,
+        worker_llm: LLMProvider,
         registry: ToolRegistry,
         scratchpad: Scratchpad,
         cwd: str = ".",
@@ -78,13 +80,7 @@ class CoordinatorEngine:
         response = await self._coordinator_llm.complete(messages=messages, tools=None)
         content = response.content or "[]"
 
-        # Parse JSON (handle markdown code blocks)
-        json_str = content.strip()
-        if json_str.startswith("```"):
-            lines = json_str.split("\n")
-            json_str = "\n".join(lines[1:-1]) if len(lines) > 2 else "[]"
-
-        raw_assignments: list[dict[str, Any]] = json.loads(json_str)
+        raw_assignments: list[dict[str, Any]] = json.loads(extract_json(content))
 
         return [
             WorkerAssignment(

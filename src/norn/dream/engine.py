@@ -8,9 +8,11 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from norn.core.models import Message, Role
+from norn.core.utils import extract_json
 from norn.dream.prompts import build_consolidation_prompt, build_dream_system_prompt
 
 if TYPE_CHECKING:
+    from norn.core.llm import LLMProvider
     from norn.memory.store import MemoryStore
 
 logger = logging.getLogger(__name__)
@@ -30,7 +32,7 @@ class DreamResult:
 class DreamEngine:
     """Orchestrates the four-phase memory consolidation."""
 
-    def __init__(self, store: MemoryStore, llm: object) -> None:
+    def __init__(self, store: MemoryStore, llm: LLMProvider) -> None:
         self._store = store
         self._llm = llm
 
@@ -80,13 +82,7 @@ class DreamEngine:
         response = await self._llm.complete(messages=messages, tools=None)
         content = response.content or ""
 
-        # Parse JSON from response (handle markdown code blocks)
-        json_str = content.strip()
-        if json_str.startswith("```"):
-            lines = json_str.split("\n")
-            json_str = "\n".join(lines[1:-1]) if len(lines) > 2 else json_str
-
-        return json.loads(json_str)
+        return json.loads(extract_json(content))
 
     # --- Phase 4: Prune ---
 
@@ -110,9 +106,7 @@ class DreamEngine:
         # Delete pruned topics
         pruned = consolidation.get("pruned_topics", [])
         for name in pruned:
-            topic_path = self._store._topics_dir / f"{name}.md"
-            if topic_path.exists():
-                topic_path.unlink()
+            if self._store.delete_topic(name):
                 files_pruned.append(f"topics/{name}.md")
 
         return files_written, files_pruned

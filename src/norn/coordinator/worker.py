@@ -6,27 +6,16 @@ import logging
 from typing import TYPE_CHECKING
 
 from norn.coordinator.models import WorkerResult
+from norn.coordinator.prompts import build_worker_system_prompt
 from norn.core.agent import AgentLoop
 
 if TYPE_CHECKING:
     from norn.coordinator.models import WorkerAssignment
     from norn.coordinator.scratchpad import Scratchpad
+    from norn.core.llm import LLMProvider
     from norn.tools.registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
-
-
-def _build_worker_prompt(assignment: WorkerAssignment) -> str:
-    """Build the system prompt for a worker."""
-    return (
-        f"You are a Norn worker (ID: {assignment.worker_id}) "
-        f"in the {assignment.phase.value.upper()} phase.\n\n"
-        f"## Your Task\n\n{assignment.task}\n\n"
-        "## Rules\n\n"
-        "- Focus exclusively on your assigned task.\n"
-        "- Be concise and factual in your output.\n"
-        "- Report your findings clearly.\n"
-    )
 
 
 class Worker:
@@ -35,7 +24,7 @@ class Worker:
     def __init__(
         self,
         assignment: WorkerAssignment,
-        llm: object,
+        llm: LLMProvider,
         registry: ToolRegistry,
         scratchpad: Scratchpad,
         cwd: str = ".",
@@ -49,7 +38,11 @@ class Worker:
         self.agent = AgentLoop(
             llm=llm,
             registry=scoped_registry,
-            system_prompt=_build_worker_prompt(assignment),
+            system_prompt=build_worker_system_prompt(
+                worker_id=assignment.worker_id,
+                phase=assignment.phase,
+                task=assignment.task,
+            ),
             cwd=cwd,
         )
 

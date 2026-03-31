@@ -15,6 +15,15 @@ _MEMORY_HEADER = """# Norn Memory
 """
 
 
+def _safe_name(name: str) -> str:
+    """Sanitize a name to prevent path traversal."""
+    sanitized = Path(name).name
+    if not sanitized or sanitized.startswith("."):
+        msg = f"Invalid name: {name!r}"
+        raise ValueError(msg)
+    return sanitized
+
+
 class MemoryStore:
     """Filesystem-backed memory store for Norn."""
 
@@ -62,15 +71,15 @@ class MemoryStore:
 
     def read_topic(self, name: str) -> str | None:
         """Read a topic file. Returns None if it doesn't exist."""
-        path = self._topics_dir / f"{name}.md"
+        path = self._topics_dir / f"{_safe_name(name)}.md"
         if not path.exists():
             return None
-        return path.read_text()
+        return path.read_text(encoding="utf-8")
 
     def write_topic(self, name: str, content: str) -> None:
         """Write (overwrite) a topic file."""
-        path = self._topics_dir / f"{name}.md"
-        path.write_text(content)
+        path = self._topics_dir / f"{_safe_name(name)}.md"
+        path.write_text(content, encoding="utf-8")
 
     def list_topics(self) -> list[str]:
         """List all topic names (without .md extension)."""
@@ -78,20 +87,28 @@ class MemoryStore:
             return []
         return sorted(p.stem for p in self._topics_dir.glob("*.md"))
 
+    def delete_topic(self, name: str) -> bool:
+        """Delete a topic file. Returns True if the file existed."""
+        path = self._topics_dir / f"{_safe_name(name)}.md"
+        if path.exists():
+            path.unlink()
+            return True
+        return False
+
     # --- Daily logs ---
 
     def append_daily(self, date_str: str, entry: str) -> None:
         """Append an entry to a daily log file."""
-        path = self._daily_dir / f"{date_str}.md"
-        with open(path, "a") as f:
+        path = self._daily_dir / f"{_safe_name(date_str)}.md"
+        with open(path, "a", encoding="utf-8") as f:
             f.write(entry + "\n\n")
 
     def read_daily(self, date_str: str) -> str | None:
         """Read a daily log. Returns None if it doesn't exist."""
-        path = self._daily_dir / f"{date_str}.md"
+        path = self._daily_dir / f"{_safe_name(date_str)}.md"
         if not path.exists():
             return None
-        return path.read_text()
+        return path.read_text(encoding="utf-8")
 
     def list_daily_logs(self) -> list[str]:
         """List daily log dates, most recent first."""

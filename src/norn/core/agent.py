@@ -8,6 +8,7 @@ from norn.core.models import LLMResponse, Message, Role, ToolCall
 from norn.tools.base import ToolContext, ToolResult
 
 if TYPE_CHECKING:
+    from norn.core.llm import LLMProvider
     from norn.memory.session_logger import SessionLogger
     from norn.memory.store import MemoryStore
     from norn.permissions.checker import PermissionChecker
@@ -21,7 +22,7 @@ class AgentLoop:
 
     def __init__(
         self,
-        llm: object,
+        llm: LLMProvider,
         registry: ToolRegistry,
         system_prompt: str = "You are Norn, a helpful coding agent.",
         cwd: str = ".",
@@ -77,6 +78,7 @@ class AgentLoop:
                 tool_calls=response.tool_calls,
             )
             messages.append(assistant_msg)
+            self.history.append(assistant_msg)
 
             for call in response.tool_calls:
                 self.tool_call_count += 1
@@ -87,6 +89,7 @@ class AgentLoop:
                     tool_call_id=call.id,
                 )
                 messages.append(tool_msg)
+                self.history.append(tool_msg)
 
         # Safety: max rounds reached
         final = LLMResponse(content="[Max tool rounds reached]")

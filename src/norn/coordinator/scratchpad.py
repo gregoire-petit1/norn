@@ -6,6 +6,16 @@ from pathlib import Path
 
 from norn.coordinator.models import CoordinatorPhase
 
+
+def _safe_name(name: str) -> str:
+    """Sanitize a filename to prevent path traversal."""
+    sanitized = Path(name).name
+    if not sanitized or sanitized.startswith("."):
+        msg = f"Invalid filename: {name!r}"
+        raise ValueError(msg)
+    return sanitized
+
+
 _SECTIONS = [phase.value for phase in CoordinatorPhase]
 
 
@@ -23,15 +33,15 @@ class Scratchpad:
 
     def write(self, section: str, filename: str, content: str) -> None:
         """Write a file to a scratchpad section."""
-        path = self.base_dir / section / filename
-        path.write_text(content)
+        path = self.base_dir / _safe_name(section) / _safe_name(filename)
+        path.write_text(content, encoding="utf-8")
 
     def read(self, section: str, filename: str) -> str | None:
         """Read a file from a scratchpad section. Returns None if missing."""
-        path = self.base_dir / section / filename
+        path = self.base_dir / _safe_name(section) / _safe_name(filename)
         if not path.exists():
             return None
-        return path.read_text()
+        return path.read_text(encoding="utf-8")
 
     def list_files(self, section: str) -> list[str]:
         """List all files in a section."""

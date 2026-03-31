@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 import urllib.parse
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 
@@ -78,7 +79,7 @@ class RiskClassifier:
     def is_protected_path(self, path: str) -> bool:
         """Check if a path is protected (sensitive config/secret file)."""
         # Expand ~ for matching
-        expanded = path.replace("~", "/home/user")
+        expanded = path.replace("~", str(Path.home()))
         return any(pattern.search(expanded) for pattern in _PROTECTED_PATH_PATTERNS)
 
     def has_path_traversal(self, path: str) -> bool:

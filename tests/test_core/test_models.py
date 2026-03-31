@@ -6,8 +6,8 @@ from norn.core.models import (
     Role,
     StreamChunk,
     ToolCall,
-    ToolResult,
 )
+from norn.tools.base import ToolResult
 
 
 def test_message_creation():
