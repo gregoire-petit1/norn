@@ -40,6 +40,8 @@ from norn.tools.ml.model_eval import ModelEvalTool
 from norn.tools.ml.model_inspector import ModelInspectorTool
 from norn.tools.ml.tensor_inspector import TensorInspectorTool
 from norn.tools.registry import ToolRegistry
+from norn.tools.web.web_fetch import WebFetchTool
+from norn.tools.web.web_search import WebSearchTool
 
 app = typer.Typer(name="norn", help="Norn - the coding agent that weaves your destiny")
 console = Console()
@@ -60,6 +62,9 @@ def _build_registry(flag_registry: FeatureFlagRegistry | None = None) -> ToolReg
     registry.register(DatasetInspectorTool(), feature_flag="ml_tools")
     registry.register(ModelEvalTool(), feature_flag="ml_tools")
     registry.register(ModelCardTool(), feature_flag="ml_tools")
+    # Web tools (gated behind web_search feature flag)
+    registry.register(WebFetchTool(), feature_flag="web_search")
+    registry.register(WebSearchTool(), feature_flag="web_search")
     return registry
 
 
@@ -101,6 +106,7 @@ def _build_flag_registry(config: NornConfig) -> FeatureFlagRegistry:
             "dream_system": FeatureFlag("dream_system", False, "Memory consolidation"),
             "coordinator": FeatureFlag("coordinator", False, "Multi-agent mode"),
             "ml_tools": FeatureFlag("ml_tools", True, "MLOps-specific tools"),
+            "web_search": FeatureFlag("web_search", False, "Web search and fetch"),
         }
     )
     registry.apply_config(
@@ -108,6 +114,7 @@ def _build_flag_registry(config: NornConfig) -> FeatureFlagRegistry:
             "dream_system": config.flags.dream_system,
             "coordinator": config.flags.coordinator,
             "ml_tools": config.flags.ml_tools,
+            "web_search": config.flags.web_search,
         }
     )
     return registry
@@ -325,6 +332,7 @@ def config() -> None:
     console.print(f"  Dream:        {'enabled' if cfg.flags.dream_system else 'disabled'}")
     console.print(f"  Coordinator:  {'enabled' if cfg.flags.coordinator else 'disabled'}")
     console.print(f"  ML tools:     {'enabled' if cfg.flags.ml_tools else 'disabled'}")
+    console.print(f"  Web search:   {'enabled' if cfg.flags.web_search else 'disabled'}")
     console.print(f"  Memory:       {'enabled' if cfg.memory.enabled else 'disabled'}")
     if cfg.memory.enabled:
         console.print(f"  Memory dir:   {cfg.memory.memory_dir}")

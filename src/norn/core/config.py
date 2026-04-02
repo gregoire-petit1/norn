@@ -35,6 +35,7 @@ class FlagsConfig(BaseModel):
     dream_system: bool = False
     coordinator: bool = False
     ml_tools: bool = False
+    web_search: bool = False
 
 
 class MemorySystemConfig(BaseModel):
