@@ -27,6 +27,12 @@ ml = [
     "polars>=1.0",
     "scikit-learn>=1.5",
 ]
+web = [
+    "httpx>=0.27",
+]
+mcp_tools = [
+    "mcp>=1.0",
+]
 
 [project.scripts]
 norn = "norn.cli.main:app"
