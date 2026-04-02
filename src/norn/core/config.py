@@ -38,6 +38,7 @@ class FlagsConfig(BaseModel):
     coordinator: bool = False
     ml_tools: bool = False
     web_search: bool = False
+    mcp: bool = False
 
 
 class MemorySystemConfig(BaseModel):

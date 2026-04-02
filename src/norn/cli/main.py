@@ -107,6 +107,7 @@ def _build_flag_registry(config: NornConfig) -> FeatureFlagRegistry:
             "coordinator": FeatureFlag("coordinator", False, "Multi-agent mode"),
             "ml_tools": FeatureFlag("ml_tools", True, "MLOps-specific tools"),
             "web_search": FeatureFlag("web_search", False, "Web search and fetch"),
+            "mcp": FeatureFlag("mcp", False, "MCP server tools"),
         }
     )
     registry.apply_config(
@@ -115,6 +116,7 @@ def _build_flag_registry(config: NornConfig) -> FeatureFlagRegistry:
             "coordinator": config.flags.coordinator,
             "ml_tools": config.flags.ml_tools,
             "web_search": config.flags.web_search,
+            "mcp": config.flags.mcp,
         }
     )
     return registry
@@ -134,6 +136,19 @@ def _build_memory_store(config: NornConfig) -> MemoryStore | None:
     return store
 
 
+def _load_mcp_adapters(config: NornConfig, flag_registry: FeatureFlagRegistry) -> list:
+    """Synchronously load MCP tool adapters if the mcp flag is enabled."""
+    if not flag_registry.is_enabled("mcp") or not config.mcp.servers:
+        return []
+    try:
+        from norn.mcp.pool import load_mcp_tools
+
+        return asyncio.run(load_mcp_tools(config.mcp))
+    except Exception as exc:
+        console.print(f"[yellow]MCP load warning: {exc}[/yellow]")
+        return []
+
+
 @app.command()
 def chat() -> None:
     """Start an interactive chat session."""
@@ -143,6 +158,12 @@ def chat() -> None:
     flag_registry = _build_flag_registry(config)
     provider = _build_provider(config)
     registry = _build_registry(flag_registry)
+    # Load MCP adapters and inject into registry
+    for adapter in _load_mcp_adapters(config, flag_registry):
+        try:
+            registry.register(adapter)
+        except ValueError:
+            pass  # Ignore duplicate tool names across servers
     checker = _build_permission_checker(config)
     memory_store = _build_memory_store(config)
     session_logger = SessionLogger(memory_store) if memory_store else None
@@ -199,17 +220,15 @@ def run(prompt: str = typer.Argument(help="One-shot prompt to execute")) -> None
     flag_registry = _build_flag_registry(config)
     provider = _build_provider(config)
     registry = _build_registry(flag_registry)
+    # Load MCP adapters and inject into registry
+    for adapter in _load_mcp_adapters(config, flag_registry):
+        try:
+            registry.register(adapter)
+        except ValueError:
+            pass  # Ignore duplicate tool names across servers
     checker = _build_permission_checker(config)
     memory_store = _build_memory_store(config)
     session_logger = SessionLogger(memory_store) if memory_store else None
-    agent = AgentLoop(
-        llm=provider,
-        registry=registry,
-        cwd=str(Path.cwd()),
-        permission_checker=checker,
-        memory_store=memory_store,
-        session_logger=session_logger,
-    )
 
     async def _run_once() -> None:
         response = await agent.run(prompt)
@@ -267,6 +286,12 @@ def coordinate(prompt: str = typer.Argument(help="Task to coordinate")) -> None:
     provider = _build_provider(config)
     flag_registry = _build_flag_registry(config)
     registry = _build_registry(flag_registry)
+    # Load MCP adapters and inject into registry
+    for adapter in _load_mcp_adapters(config, flag_registry):
+        try:
+            registry.register(adapter)
+        except ValueError:
+            pass  # Ignore duplicate tool names across servers
 
     import tempfile
 
@@ -311,6 +336,12 @@ def tools() -> None:
     config.apply_env_overrides()
     flag_registry = _build_flag_registry(config)
     registry = _build_registry(flag_registry)
+    # Load MCP adapters and inject into registry
+    for adapter in _load_mcp_adapters(config, flag_registry):
+        try:
+            registry.register(adapter)
+        except ValueError:
+            pass  # Ignore duplicate tool names across servers
     console.print("[bold]Available tools:[/bold]\n")
     for tool in registry.list_tools():
         risk_color = {"low": "green", "medium": "yellow", "high": "red"}[tool.risk_level.value]
@@ -333,6 +364,9 @@ def config() -> None:
     console.print(f"  Coordinator:  {'enabled' if cfg.flags.coordinator else 'disabled'}")
     console.print(f"  ML tools:     {'enabled' if cfg.flags.ml_tools else 'disabled'}")
     console.print(f"  Web search:   {'enabled' if cfg.flags.web_search else 'disabled'}")
+    console.print(f"  MCP:          {'enabled' if cfg.flags.mcp else 'disabled'}")
+    if cfg.mcp.enabled and cfg.mcp.servers:
+        console.print(f"  MCP servers:  {len(cfg.mcp.servers)}")
     console.print(f"  Memory:       {'enabled' if cfg.memory.enabled else 'disabled'}")
     if cfg.memory.enabled:
         console.print(f"  Memory dir:   {cfg.memory.memory_dir}")

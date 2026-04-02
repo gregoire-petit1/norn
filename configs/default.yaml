@@ -25,6 +25,7 @@ flags:
   coordinator: false    # Phase 4
   ml_tools: true        # Phase 5: PyTorch/Polars/sklearn tools
   web_search: false     # Phase 6: DuckDuckGo search + web fetch
+  mcp: false            # Phase 6: MCP server tools
 
 mcp:
   enabled: false        # Phase 6: MCP server integration
