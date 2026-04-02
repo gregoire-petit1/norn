@@ -9,6 +9,8 @@ from pathlib import Path
 import yaml
 from pydantic import BaseModel
 
+from norn.mcp.models import MCPConfig
+
 
 class PermissionMode(StrEnum):
     INTERACTIVE = "interactive"
@@ -59,6 +61,7 @@ class NornConfig(BaseModel):
     flags: FlagsConfig = FlagsConfig()
     memory: MemorySystemConfig = MemorySystemConfig()
     coordinator: CoordinatorConfig = CoordinatorConfig()
+    mcp: MCPConfig = MCPConfig()
 
     @classmethod
     def from_yaml(cls, path: Path) -> NornConfig:
