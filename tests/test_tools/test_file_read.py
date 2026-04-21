@@ -1,6 +1,5 @@
 """Tests for FileReadTool."""
 
-
 import pytest
 
 from norn.tools.base import RiskLevel, ToolContext
@@ -49,3 +48,19 @@ async def test_read_directory(tool, tmp_path):
     result = await tool.execute(FileReadInput(path=str(tmp_path)), ctx)
     assert "a.py" in result.output
     assert "b.py" in result.output
+
+
+# --------------------------------------------------------------------------- #
+# B1.5 - ToolErrorType taxonomy
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.asyncio
+async def test_read_missing_file_sets_file_not_found(tool, tmp_path):
+    """Path that doesn't exist must tag the failure as FILE_NOT_FOUND."""
+    from norn.tools.base import ToolErrorType
+
+    ctx = ToolContext(cwd=str(tmp_path))
+    result = await tool.execute(FileReadInput(path=str(tmp_path / "nope.txt")), ctx)
+    assert result.is_error is True
+    assert result.error_type == ToolErrorType.FILE_NOT_FOUND.value

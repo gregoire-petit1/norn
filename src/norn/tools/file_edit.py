@@ -6,7 +6,7 @@ from pathlib import Path
 
 from pydantic import BaseModel
 
-from norn.tools.base import RiskLevel, ToolContext, ToolResult
+from norn.tools.base import RiskLevel, ToolContext, ToolErrorType, ToolResult
 
 
 class FileEditInput(BaseModel):
@@ -32,21 +32,31 @@ class FileEditTool:
             target = Path(ctx.cwd) / target
 
         if not target.exists():
-            return ToolResult(error=f"File not found: {target}")
+            return ToolResult(
+                error=f"File not found: {target}",
+                error_type=ToolErrorType.FILE_NOT_FOUND.value,
+            )
 
         try:
             content = target.read_text(encoding="utf-8")
         except Exception as e:
-            return ToolResult(error=f"Cannot read file: {e}")
+            return ToolResult(
+                error=f"Cannot read file: {e}",
+                error_type=ToolErrorType.EXECUTION_ERROR.value,
+            )
 
         count = content.count(input.old_string)
 
         if count == 0:
-            return ToolResult(error=f"Old string not found in {target}")
+            return ToolResult(
+                error=f"Old string not found in {target}",
+                error_type=ToolErrorType.INVALID_ARGUMENT.value,
+            )
 
         if count > 1 and not input.replace_all:
             return ToolResult(
-                error=f"Found {count} matches. Use replace_all=true or provide more context."
+                error=f"Found {count} matches. Use replace_all=true or provide more context.",
+                error_type=ToolErrorType.INVALID_ARGUMENT.value,
             )
 
         if input.replace_all:

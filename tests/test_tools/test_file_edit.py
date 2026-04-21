@@ -52,3 +52,57 @@ async def test_edit_not_found(tool, source_file):
     )
     assert result.is_error is True
     assert "not found" in result.error.lower()
+
+
+# --------------------------------------------------------------------------- #
+# B1.5 - ToolErrorType taxonomy
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.asyncio
+async def test_edit_missing_file_sets_file_not_found(tool, tmp_path):
+    """Editing a path that doesn't exist tags as FILE_NOT_FOUND."""
+    from norn.tools.base import ToolErrorType
+
+    ctx = ToolContext(cwd=str(tmp_path))
+    result = await tool.execute(
+        FileEditInput(path=str(tmp_path / "ghost.txt"), old_string="a", new_string="b"),
+        ctx,
+    )
+    assert result.is_error is True
+    assert result.error_type == ToolErrorType.FILE_NOT_FOUND.value
+
+
+@pytest.mark.asyncio
+async def test_edit_old_string_not_found_sets_invalid_argument(tool, source_file):
+    """A non-matching ``old_string`` is a programmer/agent error: the
+    arguments are ill-formed for this file. Tags as INVALID_ARGUMENT."""
+    from norn.tools.base import ToolErrorType
+
+    ctx = ToolContext(cwd=str(source_file.parent))
+    result = await tool.execute(
+        FileEditInput(
+            path=str(source_file),
+            old_string="nonexistent string",
+            new_string="replacement",
+        ),
+        ctx,
+    )
+    assert result.is_error is True
+    assert result.error_type == ToolErrorType.INVALID_ARGUMENT.value
+
+
+@pytest.mark.asyncio
+async def test_edit_ambiguous_match_sets_invalid_argument(tool, tmp_path):
+    """Multiple matches without ``replace_all=True`` is also an INVALID_ARGUMENT."""
+    from norn.tools.base import ToolErrorType
+
+    f = tmp_path / "dup.txt"
+    f.write_text("foo foo foo")
+    ctx = ToolContext(cwd=str(tmp_path))
+    result = await tool.execute(
+        FileEditInput(path=str(f), old_string="foo", new_string="bar", replace_all=False),
+        ctx,
+    )
+    assert result.is_error is True
+    assert result.error_type == ToolErrorType.INVALID_ARGUMENT.value

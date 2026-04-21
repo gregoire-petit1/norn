@@ -6,7 +6,7 @@ from pathlib import Path
 
 from pydantic import BaseModel
 
-from norn.tools.base import RiskLevel, ToolContext, ToolResult
+from norn.tools.base import RiskLevel, ToolContext, ToolErrorType, ToolResult
 
 
 class FileWriteInput(BaseModel):
@@ -34,4 +34,4 @@ class FileWriteTool:
             target.write_text(input.content, encoding="utf-8")
             return ToolResult(output=f"Wrote {len(input.content)} bytes to {target}")
         except Exception as e:
-            return ToolResult(error=str(e))
+            return ToolResult(error=str(e), error_type=ToolErrorType.EXECUTION_ERROR.value)

@@ -6,7 +6,7 @@ from pathlib import Path
 
 from pydantic import BaseModel
 
-from norn.tools.base import RiskLevel, ToolContext, ToolResult
+from norn.tools.base import RiskLevel, ToolContext, ToolErrorType, ToolResult
 
 
 class FileReadInput(BaseModel):
@@ -31,7 +31,10 @@ class FileReadTool:
             target = Path(ctx.cwd) / target
 
         if not target.exists():
-            return ToolResult(error=f"Path not found: {target}")
+            return ToolResult(
+                error=f"Path not found: {target}",
+                error_type=ToolErrorType.FILE_NOT_FOUND.value,
+            )
 
         if target.is_dir():
             entries = sorted(target.iterdir())
@@ -44,4 +47,4 @@ class FileReadTool:
             numbered = [f"{i + input.offset + 1}: {line}" for i, line in enumerate(selected)]
             return ToolResult(output="\n".join(numbered))
         except Exception as e:
-            return ToolResult(error=str(e))
+            return ToolResult(error=str(e), error_type=ToolErrorType.EXECUTION_ERROR.value)
