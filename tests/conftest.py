@@ -84,3 +84,33 @@ def _reset_session_contextvar() -> Iterator[None]:
         yield
     finally:
         session_id_var.reset(token)
+
+
+@pytest.fixture(autouse=True, scope="session")
+def _redirect_state_dir(tmp_path_factory: pytest.TempPathFactory) -> Iterator[None]:
+    """Redirect ``_STATE_DIR`` / ``_LAST_SESSION_FILE`` for the entire test session.
+
+    Phase 9 F1 makes ``new_session()`` write the current sid to
+    ``~/.norn/state/last_session`` so that ``norn logs tail --session last``
+    can resolve the alias. Many tests (and the per-test
+    ``_reset_session_contextvar`` fixture indirectly) call ``new_session``,
+    which would otherwise pollute the user's real home-directory state file
+    every time the suite runs.
+
+    Session-scoped so the redirect only happens once and remains stable across
+    tests that monkeypatch (locally) the same symbols for assertion purposes
+    — local function-scoped monkeypatches still win because they restore to
+    the session-scoped value, never to the production default.
+    """
+    import norn.observability.logger as logger_mod
+
+    state_dir = tmp_path_factory.mktemp("norn-state")
+    original_state_dir = logger_mod._STATE_DIR
+    original_last_session = logger_mod._LAST_SESSION_FILE
+    logger_mod._STATE_DIR = state_dir
+    logger_mod._LAST_SESSION_FILE = state_dir / "last_session"
+    try:
+        yield
+    finally:
+        logger_mod._STATE_DIR = original_state_dir
+        logger_mod._LAST_SESSION_FILE = original_last_session

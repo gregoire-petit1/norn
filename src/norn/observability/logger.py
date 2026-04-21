@@ -7,6 +7,7 @@ import logging
 import os
 import uuid
 from contextvars import ContextVar
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import structlog
@@ -16,12 +17,38 @@ if TYPE_CHECKING:
 
 session_id_var: ContextVar[str | None] = ContextVar("norn_session_id", default=None)
 
+# State file used to persist the most recent session UUID so the CLI
+# (e.g. ``norn logs tail --session last``) can resolve aliases without the
+# user having to copy-paste a UUID.
+_STATE_DIR = Path.home() / ".norn" / "state"
+_LAST_SESSION_FILE = _STATE_DIR / "last_session"
+
 
 def new_session() -> str:
-    """Generate a new session UUID and bind to contextvar."""
+    """Generate a new session UUID, bind to contextvar, persist to state file."""
     sid = str(uuid.uuid4())
     session_id_var.set(sid)
+    _persist_last_session(sid)
     return sid
+
+
+def _persist_last_session(sid: str) -> None:
+    """Best-effort write of the latest session id; never raises.
+
+    Uses an atomic ``tmp`` + ``replace`` write so concurrent ``norn``
+    processes can't corrupt the file (last writer wins, file is always
+    either fully old or fully new). Any ``OSError`` (read-only fs, disk
+    full, permission denied) is silently swallowed: the state file is a
+    convenience for the CLI, not a correctness requirement of logging.
+    """
+    try:
+        _STATE_DIR.mkdir(parents=True, exist_ok=True)
+        tmp = _LAST_SESSION_FILE.with_suffix(".tmp")
+        tmp.write_text(sid, encoding="utf-8")
+        tmp.replace(_LAST_SESSION_FILE)
+    except OSError:
+        # fail-open: never let observability state-keeping crash the agent
+        pass
 
 
 def get_logger(name: str | None = None) -> structlog.stdlib.BoundLogger:

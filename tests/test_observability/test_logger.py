@@ -98,3 +98,47 @@ def test_init_logging_disabled_no_op(tmp_path):
     # No file should be created (disabled = no writes)
     files = list(tmp_path.iterdir())
     assert files == []
+
+
+def test_new_session_persists_last_session_file(tmp_path, monkeypatch):
+    """new_session() writes the freshly minted UUID to ``_LAST_SESSION_FILE``.
+
+    Phase 9 F1 plumbing: enables ``norn logs tail --session last`` to resolve
+    the most recent session id without the user copy-pasting a UUID.
+    """
+    state_dir = tmp_path / "state"
+    monkeypatch.setattr("norn.observability.logger._STATE_DIR", state_dir)
+    monkeypatch.setattr(
+        "norn.observability.logger._LAST_SESSION_FILE",
+        state_dir / "last_session",
+    )
+
+    sid = new_session()
+
+    persisted = (state_dir / "last_session").read_text(encoding="utf-8").strip()
+    assert persisted == sid
+
+
+def test_new_session_fails_open_on_oserror(tmp_path, monkeypatch):
+    """If the state dir cannot be created, new_session() must still return a sid.
+
+    The state file is a convenience, not a correctness requirement; logging
+    must never crash because the disk is full or read-only.
+    """
+    state_dir = tmp_path / "state"
+    monkeypatch.setattr("norn.observability.logger._STATE_DIR", state_dir)
+    monkeypatch.setattr(
+        "norn.observability.logger._LAST_SESSION_FILE",
+        state_dir / "last_session",
+    )
+
+    def boom(*_args, **_kwargs):
+        raise OSError("disk full")
+
+    monkeypatch.setattr("pathlib.Path.mkdir", boom)
+
+    sid = new_session()  # must not raise
+
+    assert isinstance(sid, str)
+    assert len(sid) == 36
+    assert not (state_dir / "last_session").exists()
