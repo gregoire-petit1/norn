@@ -16,6 +16,30 @@ class RiskLevel(StrEnum):
     HIGH = "high"  # Destructive or irreversible
 
 
+class ToolErrorType(StrEnum):
+    """Semantic error categories for ``ToolResult.error_type``.
+
+    Used by tool implementations to tag failures with stable, queryable
+    categories. Mirrors :class:`norn.permissions.models.PermissionDecisionReason`
+    introduced in Phase 9 v1.
+
+    Values are surfaced verbatim in JSONL ``tool.call`` events; downstream
+    dashboards and log filters key on them, so renaming a member is a
+    breaking change.
+    """
+
+    FILE_NOT_FOUND = "FileNotFound"
+    PERMISSION_DENIED = "PermissionDenied"
+    INVALID_ARGUMENT = "InvalidArgument"
+    TIMEOUT = "Timeout"
+    NETWORK_ERROR = "NetworkError"
+    HTTP_ERROR = "HttpError"
+    PARSE_ERROR = "ParseError"
+    NOT_SUPPORTED = "NotSupported"
+    EXECUTION_ERROR = "ExecutionError"
+    RESOURCE_EXHAUSTED = "ResourceExhausted"
+
+
 class ToolContext(BaseModel):
     """Context passed to tool execution."""
 
