@@ -207,6 +207,50 @@ A reasonable Phase 9 v1 would bundle Tier 1 + B1 + F1, leaving F2/F3 for v2.
 
 ---
 
+## Phase 9 v1 — Completed (2026-04-22)
+
+Scope delivered: Tier 1 + B1 + F1 (8 tasks). All commits on `main`, no push.
+
+### Items closed
+
+| Item | Status | Commit(s) | Notes |
+|---|---|---|---|
+| A1 | ✅ | `8bb36c3` | Design doc updated with harmonised `tool.call` schema (success omits error fields, failure emits `error_type` + `error_message`). |
+| A2 | ✅ | `31fbf05` + `396b617` | Initial fix synthesised reasons; review fixup added `PermissionDecisionReason` StrEnum (`yolo`, `auto_approved`, `user_approved`, `user_denied`, `destructive_denied`, `prompt_required_no_handler`), e2e log assertions in `test_instrumentation_periphery.py`, and a "Reason taxonomy" subsection in the Phase 8 design doc. |
+| A3 | ✅ | `d8aaac3` | `TODO(T6)` retagged to `TODO(phase9-v2)` with cross-reference. |
+| C1 | ✅ | `be3aede` | `norn version` is now a 4-line trivial print: no `NornConfig.load()`, no `_bootstrap_logging()`, no `verbose` flag. |
+| D2 | ✅ | `b8eaf4f` | Tightened the e2e cost assertion to require numeric `> 0` for `gpt-3.5-turbo`. **Bonus discovery**: revealed a silent litellm API drift bug (`completion_cost` no longer accepts `prompt_tokens`/`completion_tokens` kwargs) → switched the cost processor to `litellm.cost_per_token`. |
+| D1 | ✅ | `234e59b` | `LiteLLMProvider` now accepts an optional `completion_fn` injected at construction time, lazily resolved from `litellm.acompletion` if `None`. The concurrent test (`test_concurrent_agent_runs_do_not_cross_contaminate_sessions`) injects per-instance `AsyncMock`s instead of patching the module global, with `assert_awaited_once()` proving isolation. |
+| B1 | ✅ | `7848bd1` | Added `error_type: str \| None` field to `ToolResult`. The 3 systemic origin sites in `agent.py` now emit `"UnknownTool"`, `"PermissionDenied"`, `type(e).__name__`. The ~30 per-tool `ToolResult(error=...)` sites in `src/norn/tools/**/*.py` keep falling through to the `"ToolExecutionError"` fallback (deferred to v2). |
+| F1 | ✅ | `5a000da` (plumbing) + `2fc45f3` (CLI) | `new_session()` persists to `~/.norn/state/last_session` (atomic, fail-open). New `norn logs tail` command in `src/norn/cli/logs.py` mounted as a `logs` Typer sub-app. Filters: `--event` (repeatable, OR), `--session` (UUID or `last`/`current` alias), `--json` passthrough. Default rich format: `HH:MM:SS [LEVEL] event.name k=v ...` with level colours. Test conftest extended with `_redirect_state_dir` session-scoped autouse fixture to protect the user's real state file. |
+
+### Bottom-line metrics
+
+- **Tests:** 485 (Phase 8 close) → **507 passed** (+22 net: +6 A2, -1 C1, +3 B1, +13 F1, +1 e2e log A2 review)
+- **Ruff:** 37 → **38 errors** (+1 E402 on the `from norn.cli.logs import logs_app` line in `main.py`, structurally identical to the 28 pre-existing E402s caused by `load_dotenv()` running before the norn import block — accepted as baseline drift)
+- **Commits:** 11 commits on `main` (`8bb36c3..2fc45f3`), no push
+- **Plans/design docs added:**
+  - `docs/plans/2026-04-22-norn-phase9-logs-tail-design.md`
+  - `docs/plans/2026-04-22-norn-phase9-v1-implementation.md`
+
+### Follow-ups carried forward to Phase 9 v2
+
+The A2 code review surfaced 4 "Important" issues; 3 of them were absorbed into the A2 fixup commit (`396b617`). The remaining one — granularity unification of auto-approve reasons — was decided in scope (collapsed to `AUTO_APPROVED`).
+
+For B1: per-tool granular `error_type` (replacing the `"ToolExecutionError"` fallback for the ~30 sites in `src/norn/tools/**/*.py`) is a Phase 9 v2 candidate if downstream consumers need it.
+
+For F1: `--follow` (live tail), `--since 5m`, `--level error`, `--lines N`, multi-day reading, and pager-style pagination are explicitly deferred to v2 per the design doc §1.4.
+
+Other unaddressed items from this tracker:
+- **C2** — `_provider_from_model` heuristic (deferred)
+- **D3** — Coverage gaps (denied path, agent.run failure E2E, multi-tool turn, empty messages)
+- **D4 + E2** — Windows portability
+- **E1** — CI smoke test
+- **F2** — `norn logs stats` (DuckDB-backed)
+- **F3** — `norn cost report`
+
+---
+
 ## Notes
 
 - This tracker is a living document — add new items as they emerge during
