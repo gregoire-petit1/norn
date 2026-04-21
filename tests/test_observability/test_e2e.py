@@ -370,11 +370,16 @@ async def test_cost_included_when_enabled(tmp_path: Path) -> None:
         llm_events = [e for e in events if e.get("event") == "llm.complete"]
         assert len(llm_events) == 1
         ev = llm_events[0]
-        # Cost key must be present. Value may be a float (>=0) or None if
-        # litellm.completion_cost failed/returned a non-coercible value
-        # (processor is fail-open by contract — see processors.py:make_cost_processor).
+        # Cost key must be present and numeric for a model with a known
+        # litellm price entry (gpt-3.5-turbo). A None value would mean
+        # the cost processor silently failed — see Phase 9 follow-up D2.
         assert "cost_usd" in ev, "cost_usd key missing when include_cost=True"
-        assert ev["cost_usd"] is None or isinstance(ev["cost_usd"], int | float)
+        assert isinstance(ev["cost_usd"], (int, float)), (
+            f"cost_usd must be numeric for a priced model, got {type(ev['cost_usd']).__name__}"
+        )
+        assert ev["cost_usd"] > 0, (
+            f"cost_usd must be positive for gpt-3.5-turbo with non-zero usage, got {ev['cost_usd']}"
+        )
     finally:
         _close_handlers()
 

@@ -121,9 +121,10 @@ def test_cost_processor_happy_path():
         "prompt_tokens": 10,
         "completion_tokens": 5,
     }
-    with patch("litellm.completion_cost", return_value=0.00012345678):
+    # cost_per_token returns (prompt_cost, completion_cost); processor sums them.
+    with patch("litellm.cost_per_token", return_value=(0.0001, 0.00002345678)):
         out = processor(None, "info", event)
-    assert out["cost_usd"] == 0.000123  # rounded to 6 decimals
+    assert out["cost_usd"] == 0.000123  # (0.0001 + 0.00002345678) rounded to 6 decimals
 
 
 def test_cost_processor_fail_open_on_exception():
@@ -134,6 +135,6 @@ def test_cost_processor_fail_open_on_exception():
         "prompt_tokens": 10,
         "completion_tokens": 5,
     }
-    with patch("litellm.completion_cost", side_effect=RuntimeError("unknown model")):
+    with patch("litellm.cost_per_token", side_effect=RuntimeError("unknown model")):
         out = processor(None, "info", event)
     assert out["cost_usd"] is None

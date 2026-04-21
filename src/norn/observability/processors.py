@@ -74,14 +74,14 @@ def make_cost_processor(enabled: bool):
         if event_dict.get("event") != EventName.LLM_COMPLETE.value:
             return event_dict
         try:
-            from litellm import completion_cost
+            from litellm import cost_per_token
 
-            cost = completion_cost(
+            prompt_cost, completion_cost = cost_per_token(
                 model=event_dict.get("model", ""),
                 prompt_tokens=event_dict.get("prompt_tokens", 0),
                 completion_tokens=event_dict.get("completion_tokens", 0),
             )
-            event_dict["cost_usd"] = round(float(cost), 6)
+            event_dict["cost_usd"] = round(float(prompt_cost) + float(completion_cost), 6)
         except Exception:
             event_dict["cost_usd"] = None
         return event_dict
