@@ -7,7 +7,7 @@ from enum import StrEnum
 from pathlib import Path
 
 import yaml
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from norn.mcp.models import MCPConfig
 
@@ -64,7 +64,7 @@ class RouterTierConfig(BaseModel):
 
 class RouterConfig(BaseModel):
     enabled: bool = False
-    tiers: dict[str, RouterTierConfig] = {}
+    tiers: dict[str, RouterTierConfig] = Field(default_factory=dict)
 
 
 class NornConfig(BaseModel):

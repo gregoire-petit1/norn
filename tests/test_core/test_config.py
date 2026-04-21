@@ -3,7 +3,7 @@
 from norn.core.config import (
     NornConfig,
     PermissionMode,
-    RouterConfig,  # noqa: F401  (re-exported for downstream tests)
+    RouterConfig,
     RouterTierConfig,
 )
 
@@ -95,6 +95,16 @@ def test_router_tier_config():
     assert tier.provider == "ollama"
     assert tier.model == "qwen2.5-coder:7b"
     assert tier.api_base is None
+
+
+def test_router_config_direct_construction():
+    """RouterConfig can be built directly without going through NornConfig."""
+    cfg = RouterConfig(
+        enabled=True,
+        tiers={"fast": RouterTierConfig(provider="ollama", model="qwen2.5-coder:7b")},
+    )
+    assert cfg.enabled is True
+    assert cfg.tiers["fast"].provider == "ollama"
 
 
 def test_router_config_with_tiers():
