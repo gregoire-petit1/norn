@@ -7,9 +7,13 @@ import re
 from enum import StrEnum
 from typing import TYPE_CHECKING
 
+import structlog
+
 from norn.core.llm import LiteLLMProvider
+from norn.observability import EventName, get_logger
 
 _logger = logging.getLogger(__name__)
+_log = get_logger(__name__)
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -38,6 +42,36 @@ class Tier(StrEnum):
     POWERFUL = "powerful"
 
 
+def _score_complexity(messages: list[Message], tools: list[dict]) -> tuple[int, dict[str, bool]]:
+    """Compute the complexity score and the individual signals that contributed.
+
+    Returns ``(score, signals)`` where ``signals`` is a flat dict of booleans
+    suitable for inclusion in a ``routing.decision`` event.
+    """
+    last_content = messages[-1].content if messages else None
+    long_prompt = bool(last_content and len(last_content) > _LONG_PROMPT_CHARS)
+    complex_keyword = bool(last_content and _KEYWORD_RE.search(last_content))
+    long_history = len(messages) > _LONG_HISTORY_TURNS
+    many_tools = len(tools) > _MANY_TOOLS
+
+    signals = {
+        "long_prompt": long_prompt,
+        "complex_keyword": complex_keyword,
+        "long_history": long_history,
+        "many_tools": many_tools,
+    }
+    score = sum(1 for v in signals.values() if v)
+    return score, signals
+
+
+def _tier_from_score(score: int) -> Tier:
+    if score == 0:
+        return Tier.FAST
+    if score <= _STANDARD_MAX_SCORE:
+        return Tier.STANDARD
+    return Tier.POWERFUL
+
+
 def _classify_complexity(messages: list[Message], tools: list[dict]) -> Tier:
     """Score message complexity and return the appropriate tier.
 
@@ -49,26 +83,8 @@ def _classify_complexity(messages: list[Message], tools: list[dict]) -> Tier:
 
     Score 0 → FAST, 1..2 → STANDARD, 3+ → POWERFUL.
     """
-    score = 0
-
-    last_content = messages[-1].content if messages else None
-    if last_content:
-        if len(last_content) > _LONG_PROMPT_CHARS:
-            score += 1
-        if _KEYWORD_RE.search(last_content):
-            score += 1
-
-    if len(messages) > _LONG_HISTORY_TURNS:
-        score += 1
-
-    if len(tools) > _MANY_TOOLS:
-        score += 1
-
-    if score == 0:
-        return Tier.FAST
-    if score <= _STANDARD_MAX_SCORE:
-        return Tier.STANDARD
-    return Tier.POWERFUL
+    score, _ = _score_complexity(messages, tools)
+    return _tier_from_score(score)
 
 
 _TECHNICAL_ERROR_SIGNALS = (
@@ -143,10 +159,32 @@ class RouterProvider:
         max_tokens: int = 4096,
         tier_override: Tier | None = None,
     ) -> LLMResponse:
-        start_tier = (
-            tier_override or self.default_tier or _classify_complexity(messages, tools or [])
+        tools_list = tools or []
+        score, signals = _score_complexity(messages, tools_list)
+        if tier_override is not None:
+            start_tier = tier_override
+            reason = "override"
+        elif self.default_tier is not None:
+            start_tier = self.default_tier
+            reason = "default"
+        else:
+            start_tier = _tier_from_score(score)
+            reason = "classified"
+
+        _log.info(
+            EventName.ROUTING_DECISION,
+            chosen_tier=start_tier.value,
+            score=score,
+            signals=signals,
+            reason=reason,
         )
-        return await self._call_with_fallback(start_tier, messages, tools, temperature, max_tokens)
+        return await self._call_with_fallback(
+            start_tier,
+            messages,
+            tools,
+            temperature,
+            max_tokens,
+        )
 
     async def _call_with_fallback(
         self,
@@ -165,15 +203,29 @@ class RouterProvider:
         ]
 
         last_exc: Exception | None = None
-        for tier in tiers_to_try:
+        for idx, tier in enumerate(tiers_to_try):
             provider = self._providers[tier]
-            try:
-                return await provider.complete(messages, tools, temperature, max_tokens)
-            except Exception as exc:  # noqa: BLE001
-                if _is_technical_error(exc):
-                    last_exc = exc
-                    continue
-                raise
+            # Bind ``tier`` into the structlog contextvar stack so nested
+            # ``llm.complete`` events inherit it. ``bound_contextvars`` restores
+            # the prior state on exit — no leak into unrelated call sites.
+            with structlog.contextvars.bound_contextvars(tier=tier.value):
+                try:
+                    return await provider.complete(messages, tools, temperature, max_tokens)
+                except Exception as exc:  # noqa: BLE001
+                    if _is_technical_error(exc):
+                        last_exc = exc
+                        next_tier = (
+                            tiers_to_try[idx + 1].value if idx + 1 < len(tiers_to_try) else None
+                        )
+                        _log.warning(
+                            EventName.FALLBACK,
+                            from_tier=tier.value,
+                            to_tier=next_tier,
+                            error_type=type(exc).__name__,
+                            error_message=str(exc),
+                        )
+                        continue
+                    raise
 
         if last_exc is not None:
             raise last_exc

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import time
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
@@ -17,6 +18,9 @@ from norn.core.models import (
     TokenUsage,
     ToolCall,
 )
+from norn.observability import EventName, get_logger
+
+_log = get_logger(__name__)
 
 
 @runtime_checkable
@@ -90,6 +94,17 @@ def _parse_tool_calls(raw_tool_calls: list | None) -> list[ToolCall]:
     return calls
 
 
+def _provider_from_model(model: str) -> str:
+    """Extract provider name from a litellm-style model id.
+
+    Litellm uses a ``<provider>/<model>`` convention (e.g. ``ollama/llama3``,
+    ``openrouter/x``). Unprefixed names default to ``openai``.
+    """
+    if "/" in model:
+        return model.split("/", 1)[0]
+    return "openai"
+
+
 class LiteLLMProvider:
     """LLM provider using litellm for universal model support."""
 
@@ -119,8 +134,34 @@ class LiteLLMProvider:
         if tool_schemas:
             kwargs["tools"] = tool_schemas
 
-        response = await litellm.acompletion(**kwargs)
+        start = time.monotonic()
+        try:
+            response = await litellm.acompletion(**kwargs)
+        except Exception as exc:
+            _log.error(
+                EventName.LLM_COMPLETE,
+                provider=_provider_from_model(self.model),
+                model=self.model,
+                latency_ms=int((time.monotonic() - start) * 1000),
+                error=str(exc),
+                error_type=type(exc).__name__,
+            )
+            raise
+
+        latency_ms = int((time.monotonic() - start) * 1000)
         choice = response.choices[0]
+        usage = getattr(response, "usage", None)
+
+        _log.info(
+            EventName.LLM_COMPLETE,
+            provider=_provider_from_model(self.model),
+            model=self.model,
+            prompt_tokens=getattr(usage, "prompt_tokens", 0) or 0,
+            completion_tokens=getattr(usage, "completion_tokens", 0) or 0,
+            total_tokens=getattr(usage, "total_tokens", 0) or 0,
+            latency_ms=latency_ms,
+            finish_reason=getattr(choice, "finish_reason", None),
+        )
 
         return LLMResponse(
             content=choice.message.content,

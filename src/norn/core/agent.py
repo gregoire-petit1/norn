@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import time
 from typing import TYPE_CHECKING
 
 from norn.core.models import LLMResponse, Message, Role, ToolCall
+from norn.observability import EventName, get_logger
 from norn.tools.base import ToolContext, ToolResult
 
 if TYPE_CHECKING:
@@ -13,6 +15,9 @@ if TYPE_CHECKING:
     from norn.memory.store import MemoryStore
     from norn.permissions.checker import PermissionChecker
     from norn.tools.registry import ToolRegistry
+
+
+_log = get_logger(__name__)
 
 
 class AgentLoop:
@@ -53,6 +58,27 @@ class AgentLoop:
 
     async def run(self, user_input: str) -> LLMResponse:
         """Run one turn of the agent loop."""
+        start = time.monotonic()
+        _log.info(EventName.AGENT_RUN, phase="start")
+        success = False
+        error: str | None = None
+        try:
+            result = await self._run_impl(user_input)
+            success = True
+            return result
+        except Exception as exc:
+            error = f"{type(exc).__name__}: {exc}"
+            raise
+        finally:
+            _log.info(
+                EventName.AGENT_RUN,
+                phase="end",
+                duration_ms=int((time.monotonic() - start) * 1000),
+                success=success,
+                error=error,
+            )
+
+    async def _run_impl(self, user_input: str) -> LLMResponse:
         self.user_message_count += 1
         self.history.append(Message(role=Role.USER, content=user_input))
 
