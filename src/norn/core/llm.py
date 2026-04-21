@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator
+    from collections.abc import AsyncIterator, Awaitable, Callable
 
 import litellm
 
@@ -107,9 +107,21 @@ def _provider_from_model(model: str) -> str:
 class LiteLLMProvider:
     """LLM provider using litellm for universal model support."""
 
-    def __init__(self, model: str, api_base: str | None = None):
+    def __init__(
+        self,
+        model: str,
+        api_base: str | None = None,
+        *,
+        completion_fn: Callable[..., Awaitable[Any]] | None = None,
+    ) -> None:
         self.model = model
         self.api_base = api_base
+        # When no override is given, resolve ``litellm.acompletion`` lazily at
+        # call time. This preserves backward compatibility with tests that
+        # ``patch("litellm.acompletion", ...)`` after the provider is built.
+        # Tests wanting per-instance isolation (e.g. concurrent tasks) should
+        # pass ``completion_fn=`` explicitly.
+        self._completion_fn = completion_fn
         # Suppress litellm logging noise
         litellm.suppress_debug_info = True
 
@@ -140,7 +152,8 @@ class LiteLLMProvider:
             provider=_provider_from_model(self.model),
             model=self.model,
         ) as event:
-            response = await litellm.acompletion(**kwargs)
+            completion = self._completion_fn or litellm.acompletion
+            response = await completion(**kwargs)
 
             # Guard against malformed / minimal responses:
             # - ``response.choices`` may be empty (provider refusal, mocks).

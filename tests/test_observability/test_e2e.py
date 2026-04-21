@@ -162,11 +162,17 @@ def _make_router_agent(
     tiers: list[str] | None = None,
     *,
     permission_mode: PermissionMode = PermissionMode.AUTO,
+    completion_fn: Any = None,
 ):
     """Build an AgentLoop whose LLM is a real RouterProvider wrapping LiteLLMProvider(s).
 
     Only ``litellm.acompletion`` needs mocking at call sites. A real
     ``PermissionChecker`` is attached so ``permission.decision`` events fire.
+
+    If ``completion_fn`` is provided, it is injected per-instance into every
+    tier's ``LiteLLMProvider``. This is preferable to ``patch("litellm.acompletion")``
+    in concurrent tests, because the latter mutates module state and cross-
+    contaminates tasks scheduled in parallel.
     """
     from norn.core.agent import AgentLoop
     from norn.core.router import RouterProvider
@@ -179,6 +185,13 @@ def _make_router_agent(
         },
     )
     router = RouterProvider(cfg)
+
+    if completion_fn is not None:
+        # Override every tier's per-instance completion hook. Each tier provider
+        # is independent, so concurrent tasks using different `completion_fn`s
+        # cannot collide.
+        for provider in router._providers.values():
+            provider._completion_fn = completion_fn
 
     registry = ToolRegistry()
     registry.register(_EchoTool())
@@ -502,27 +515,41 @@ async def test_concurrent_agent_runs_do_not_cross_contaminate_sessions(
     # Deliberately do NOT set a session at the outer scope: each task creates its own.
 
     try:
+        # Per-task per-instance mocks: each `LiteLLMProvider` gets its own
+        # `completion_fn`. Unlike `patch("litellm.acompletion", ...)` (which
+        # mutates the module global and is non-deterministic under concurrent
+        # tasks), this is immune to scheduling order.
+        completion_mock_a = AsyncMock(
+            return_value=_make_llm_response(content="done-A", tool_calls=None),
+        )
+        completion_mock_b = AsyncMock(
+            return_value=_make_llm_response(content="done-B", tool_calls=None),
+        )
 
-        async def _one_run(label: str) -> str:
+        async def _one_run(label: str, completion_mock: AsyncMock) -> str:
             # Each task's new_session() mutates only its own copied context
             # (asyncio.Task copies the caller's context on creation); the
             # write stays local to the task.
             sid = new_session()
-            agent = _make_router_agent(permission_mode=PermissionMode.AUTO)
-            resp = _make_llm_response(content=f"done-{label}", tool_calls=None)
-            with patch(
-                "litellm.acompletion",
-                new=AsyncMock(return_value=resp),
-            ):
-                await agent.run(f"task-{label}")
+            agent = _make_router_agent(
+                permission_mode=PermissionMode.AUTO,
+                completion_fn=completion_mock,
+            )
+            await agent.run(f"task-{label}")
             return sid
 
         # Create tasks explicitly so each gets its own copied Context snapshot.
-        t_a = asyncio.create_task(_one_run("A"))
-        t_b = asyncio.create_task(_one_run("B"))
+        t_a = asyncio.create_task(_one_run("A", completion_mock_a))
+        t_b = asyncio.create_task(_one_run("B", completion_mock_b))
         sid_a, sid_b = await asyncio.gather(t_a, t_b)
 
         assert sid_a != sid_b
+
+        # Isolation proof: each task hit *its own* mock exactly once. If the
+        # injection were leaky (e.g. via a shared module-global patch), one
+        # mock would absorb both calls.
+        completion_mock_a.assert_awaited_once()
+        completion_mock_b.assert_awaited_once()
 
         events = _events(_today_file(tmp_path))
         sids_seen = {ev.get("session_id") for ev in events}
