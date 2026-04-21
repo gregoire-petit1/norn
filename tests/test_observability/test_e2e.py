@@ -773,9 +773,11 @@ async def test_agent_run_failure_emits_session_end_and_propagates(log_dir: Path)
 
     boom = AsyncMock(side_effect=_ProviderError("provider 500"))
 
-    with patch("litellm.acompletion", new=boom):
-        with pytest.raises(_ProviderError, match="provider 500"):
-            await agent.run("trigger failure")
+    with (
+        patch("litellm.acompletion", new=boom),
+        pytest.raises(_ProviderError, match="provider 500"),
+    ):
+        await agent.run("trigger failure")
 
     events = _events(_today_file(log_dir))
 
