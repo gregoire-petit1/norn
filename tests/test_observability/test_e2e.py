@@ -743,3 +743,50 @@ async def test_denied_destructive_command_logs_permission_denied(log_dir: Path) 
     phases = [e["phase"] for e in agent_events]
     assert phases == ["start", "end"]
     assert agent_events[1]["success"] is True
+
+
+# --------------------------------------------------------------------------- #
+# D3.3 - agent.run failure: provider raises mid-flight
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.asyncio
+async def test_agent_run_failure_emits_session_end_and_propagates(log_dir: Path) -> None:
+    """E2E: when the LLM provider raises mid-flight, ``agent.run`` propagates
+    the exception unchanged AND the lifecycle event is closed in the log
+    with ``success=False`` plus the harmonized ``error_type`` /
+    ``error_message`` pair.
+
+    Contract verified:
+    - exception is re-raised by ``measure_and_log`` (caller sees the failure)
+    - ``agent.run`` end event carries ``success=False`` and the exception
+      class name in ``error_type`` (so dashboards can filter failed sessions)
+    - the start marker is still present (no "amputated" sessions in the log)
+    """
+    agent = _make_router_agent(permission_mode=PermissionMode.AUTO)
+
+    # The router catches transient/technical errors for fallback, so we use
+    # a single tier and a non-RuntimeError to ensure the exception bubbles
+    # all the way out of router.complete -> agent.run.
+    class _ProviderError(Exception):
+        pass
+
+    boom = AsyncMock(side_effect=_ProviderError("provider 500"))
+
+    with patch("litellm.acompletion", new=boom):
+        with pytest.raises(_ProviderError, match="provider 500"):
+            await agent.run("trigger failure")
+
+    events = _events(_today_file(log_dir))
+
+    # Lifecycle is closed with a failure end event (not silently dropped).
+    agent_events = [e for e in events if e.get("event") == "agent.run"]
+    phases = [e.get("phase") for e in agent_events]
+    assert phases == ["start", "end"], (
+        f"agent.run lifecycle must be start+end even on failure, got {phases}"
+    )
+    end_ev = agent_events[1]
+    assert end_ev["success"] is False
+    assert end_ev["error_type"] == "_ProviderError"
+    assert "provider 500" in end_ev["error_message"]
+    assert isinstance(end_ev["duration_ms"], int) and end_ev["duration_ms"] >= 0
