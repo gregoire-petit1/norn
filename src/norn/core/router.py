@@ -6,8 +6,13 @@ import re
 from enum import StrEnum
 from typing import TYPE_CHECKING
 
+from norn.core.llm import LiteLLMProvider
+
 if TYPE_CHECKING:
-    from norn.core.models import Message
+    from collections.abc import AsyncIterator
+
+    from norn.core.config import RouterConfig
+    from norn.core.models import LLMResponse, Message, StreamChunk
 
 
 # Tier-classification thresholds (tunable heuristics).
@@ -61,3 +66,118 @@ def _classify_complexity(messages: list[Message], tools: list[dict]) -> Tier:
     if score <= _STANDARD_MAX_SCORE:
         return Tier.STANDARD
     return Tier.POWERFUL
+
+
+_TECHNICAL_ERROR_SIGNALS = (
+    "402",
+    "timeout",
+    "connection",
+    "http",
+    "rate limit",
+    "503",
+    "502",
+    "429",
+)
+
+_FALLBACK_ORDER: list[str] = ["fast", "standard", "powerful"]
+
+
+def _is_technical_error(exc: Exception) -> bool:
+    """Return True if the exception is a retryable technical error."""
+    msg = str(exc).lower()
+    return any(signal in msg for signal in _TECHNICAL_ERROR_SIGNALS)
+
+
+def _build_tier_provider(provider: str, model: str, api_base: str | None) -> LiteLLMProvider:
+    """Build a LiteLLMProvider for a single tier, applying provider prefix."""
+    prefixed_model = model
+    if provider == "ollama":
+        prefixed_model = f"ollama/{model}"
+    elif provider == "openrouter":
+        prefixed_model = f"openrouter/{model}"
+    return LiteLLMProvider(model=prefixed_model, api_base=api_base)
+
+
+class RouterProvider:
+    """Routes LLM requests across fast/standard/powerful tiers with technical-error fallback.
+
+    On `complete()`: classifies prompt complexity (or uses an override) to pick a starting
+    tier, then attempts each tier in fallback order. Technical errors (HTTP 4xx/5xx,
+    timeouts, connection issues) escalate to the next tier; non-technical errors propagate.
+
+    `stream()` does NOT fallback (streaming a partial response and then switching providers
+    would corrupt the output).
+    """
+
+    def __init__(self, config: RouterConfig, default_tier: Tier | None = None) -> None:
+        self._config = config
+        self.default_tier = default_tier
+        self._providers: dict[Tier, LiteLLMProvider] = {}
+        for tier_name, tier_cfg in config.tiers.items():
+            try:
+                tier = Tier(tier_name)
+            except ValueError:
+                continue  # Silently skip unknown tier names
+            self._providers[tier] = _build_tier_provider(
+                tier_cfg.provider, tier_cfg.model, tier_cfg.api_base
+            )
+
+    async def complete(
+        self,
+        messages: list[Message],
+        tools: list[dict] | None = None,
+        temperature: float = 0.0,
+        max_tokens: int = 4096,
+        tier_override: Tier | None = None,
+    ) -> LLMResponse:
+        start_tier = (
+            tier_override or self.default_tier or _classify_complexity(messages, tools or [])
+        )
+        return await self._call_with_fallback(start_tier, messages, tools, temperature, max_tokens)
+
+    async def _call_with_fallback(
+        self,
+        start_tier: Tier,
+        messages: list[Message],
+        tools: list[dict] | None,
+        temperature: float,
+        max_tokens: int,
+    ) -> LLMResponse:
+        try:
+            start_index = _FALLBACK_ORDER.index(start_tier.value)
+        except ValueError:
+            start_index = 0
+        tiers_to_try = [
+            Tier(t) for t in _FALLBACK_ORDER[start_index:] if Tier(t) in self._providers
+        ]
+
+        last_exc: Exception | None = None
+        for tier in tiers_to_try:
+            provider = self._providers[tier]
+            try:
+                return await provider.complete(messages, tools, temperature, max_tokens)
+            except Exception as exc:  # noqa: BLE001
+                if _is_technical_error(exc):
+                    last_exc = exc
+                    continue
+                raise
+
+        if last_exc is not None:
+            raise last_exc
+        msg = "No providers configured for routing"
+        raise RuntimeError(msg)
+
+    async def stream(
+        self,
+        messages: list[Message],
+        tools: list[dict] | None = None,
+        temperature: float = 0.0,
+        max_tokens: int = 4096,
+    ) -> AsyncIterator[StreamChunk]:
+        tier = self.default_tier or _classify_complexity(messages, tools or [])
+        provider = self._providers.get(tier)
+        if provider is None:
+            msg = f"No provider configured for tier {tier}"
+            raise RuntimeError(msg)
+        async for chunk in provider.stream(messages, tools, temperature, max_tokens):
+            yield chunk
