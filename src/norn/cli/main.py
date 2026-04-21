@@ -449,11 +449,8 @@ def config(verbose: VerboseOption = False) -> None:
 
 
 @app.command()
-def version(verbose: VerboseOption = False) -> None:
-    """Show Norn version."""
-    config = NornConfig.load()
-    config.apply_env_overrides()
-    _bootstrap_logging(config, verbose=verbose)
+def version() -> None:
+    """Show Norn version (no config load, no logging init)."""
     console.print("norn 0.1.0")
 
 

@@ -95,38 +95,7 @@ def test_disabled_logging_writes_nothing(tmp_path):
     assert list(tmp_path.iterdir()) == []
 
 
-def test_version_command_bootstraps_logging(tmp_path, monkeypatch):
-    """Running `norn version` via typer CliRunner triggers _bootstrap_logging."""
-    from typer.testing import CliRunner
-
-    from norn.cli.main import app
-
-    # Point logs to tmp_path so we don't pollute ~/.norn/
-    monkeypatch.setenv("HOME", str(tmp_path))
-
-    runner = CliRunner()
-    result = runner.invoke(app, ["version"])
-    assert result.exit_code == 0
-
-    # A session_id-tagged event should have been emitted somewhere in the run.
-    # At minimum we expect the log dir (~/.norn/logs) to exist.
-    log_dir = tmp_path / ".norn" / "logs"
-    # Dir may or may not be created depending on output mode; we accept both.
-    # The main assertion: command did not crash.
-    _ = log_dir
-
-
-def test_verbose_flag_accepted_by_version(tmp_path, monkeypatch):
-    """`norn version --verbose` is accepted and does not crash."""
-    from typer.testing import CliRunner
-
-    from norn.cli.main import app
-
-    monkeypatch.setenv("HOME", str(tmp_path))
-
-    runner = CliRunner()
-    result = runner.invoke(app, ["version", "--verbose"])
-    assert result.exit_code == 0
-
-    result = runner.invoke(app, ["version", "-v"])
-    assert result.exit_code == 0
+# Note: previous tests `test_version_command_bootstraps_logging` and
+# `test_verbose_flag_accepted_by_version` were removed in Phase 9 C1: the
+# `version` command no longer bootstraps logging or accepts --verbose.
+# See tests/test_cli/test_version.py for the new contract.
