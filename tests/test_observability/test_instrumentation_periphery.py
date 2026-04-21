@@ -150,10 +150,93 @@ async def test_agent_execute_tool_emits_tool_call_on_failure(log_dir: Path) -> N
     ev = tool_calls[0]
     assert ev["tool_name"] == "echo"
     assert ev["success"] is False
-    assert ev["error_type"] == "ToolExecutionError"
+    assert ev["error_type"] == "RuntimeError"
     assert "kaboom" in ev["error_message"]
     # Harmonised schema: no conflated `error` field.
     assert "error" not in ev
+
+
+# --------------------------------------------------------------------------- #
+# tool.call -- granular error_type (B1)
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.asyncio
+async def test_tool_call_error_type_unknown_tool(log_dir: Path) -> None:
+    """Invoking a non-existent tool emits error_type=UnknownTool."""
+    from norn.core.agent import AgentLoop
+    from norn.tools.registry import ToolRegistry
+
+    agent = AgentLoop(llm=MagicMock(), registry=ToolRegistry())
+
+    result = await agent._execute_tool(
+        ToolCall(id="c1", name="nonexistent", arguments={}),
+    )
+    assert result.error is not None
+    assert result.error_type == "UnknownTool"
+
+    events = _events(_today_file(log_dir))
+    tool_calls = [e for e in events if e.get("event") == "tool.call"]
+    assert len(tool_calls) == 1
+    ev = tool_calls[0]
+    assert ev["success"] is False
+    assert ev["error_type"] == "UnknownTool"
+    assert "Unknown tool" in ev["error_message"]
+
+
+@pytest.mark.asyncio
+async def test_tool_call_error_type_permission_denied(log_dir: Path) -> None:
+    """Tool blocked by strict-mode destructive guard emits error_type=PermissionDenied."""
+    from norn.core.agent import AgentLoop
+    from norn.tools.registry import ToolRegistry
+
+    # bash-like tool with high risk + destructive command -> STRICT denies.
+    tool = MagicMock()
+    tool.name = "bash"
+    tool.description = "bash tool"
+    tool.risk_level = RiskLevel.HIGH
+    tool.input_model = _EchoInput
+    tool.execute = AsyncMock(return_value=ToolResult(output="ok"))
+
+    registry = ToolRegistry()
+    registry.register(tool)
+    checker = PermissionChecker(mode=PermissionMode.STRICT, classifier=RiskClassifier())
+    agent = AgentLoop(llm=MagicMock(), registry=registry, permission_checker=checker)
+
+    result = await agent._execute_tool(
+        ToolCall(id="c1", name="bash", arguments={"command": "rm -rf /"}),
+    )
+    assert result.error is not None
+    assert result.error_type == "PermissionDenied"
+
+    events = _events(_today_file(log_dir))
+    tool_calls = [e for e in events if e.get("event") == "tool.call"]
+    assert len(tool_calls) == 1
+    ev = tool_calls[0]
+    assert ev["success"] is False
+    assert ev["error_type"] == "PermissionDenied"
+    assert "Permission denied" in ev["error_message"]
+
+
+@pytest.mark.asyncio
+async def test_tool_call_error_type_exception_uses_class_name(log_dir: Path) -> None:
+    """Tool raising ValueError emits error_type='ValueError'."""
+    tool = _make_tool(execute_side_effect=ValueError("boom"))
+    agent = _make_agent(tool)
+
+    result = await agent._execute_tool(
+        ToolCall(id="c1", name="echo", arguments={"msg": "x"}),
+    )
+    assert result.error is not None
+    assert result.error_type == "ValueError"
+
+    events = _events(_today_file(log_dir))
+    tool_calls = [e for e in events if e.get("event") == "tool.call"]
+    assert len(tool_calls) == 1
+    ev = tool_calls[0]
+    assert ev["success"] is False
+    assert ev["error_type"] == "ValueError"
+    assert "boom" in ev["error_message"]
 
 
 # --------------------------------------------------------------------------- #

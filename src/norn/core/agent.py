@@ -133,7 +133,7 @@ class AgentLoop:
             "success": result.error is None,
         }
         if result.error is not None:
-            payload["error_type"] = "ToolExecutionError"
+            payload["error_type"] = result.error_type or "ToolExecutionError"
             payload["error_message"] = result.error
         with contextlib.suppress(Exception):
             if result.error is None:
@@ -146,7 +146,7 @@ class AgentLoop:
         """Core tool resolution + invocation. Never raises; returns ToolResult."""
         tool = self.registry.get(call.name)
         if tool is None:
-            return ToolResult(error=f"Unknown tool: {call.name}")
+            return ToolResult(error=f"Unknown tool: {call.name}", error_type="UnknownTool")
 
         # Permission check
         if self.permission_checker is not None:
@@ -160,10 +160,12 @@ class AgentLoop:
             decision = await self.permission_checker.check(request)
             if not decision.approved:
                 reason = decision.reason or "Permission denied"
-                return ToolResult(error=f"Permission denied: {reason}")
+                return ToolResult(
+                    error=f"Permission denied: {reason}", error_type="PermissionDenied"
+                )
 
         try:
             input_obj = tool.input_model(**call.arguments)
             return await tool.execute(input_obj, self.ctx)
         except Exception as e:
-            return ToolResult(error=f"Tool execution error: {e}")
+            return ToolResult(error=f"Tool execution error: {e}", error_type=type(e).__name__)

@@ -27,6 +27,7 @@ class ToolResult(BaseModel):
 
     output: str | None = None
     error: str | None = None
+    error_type: str | None = None  # categorises the failure for observability
 
     @computed_field
     @property
