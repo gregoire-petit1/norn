@@ -51,8 +51,9 @@ def redact_secrets(
     e.g. ['api_key', 'openai_api_key', 'x_api_key'].
 
     Note: only walks top-level keys of event_dict. Nested dicts/lists
-    are not recursed. TODO(T6): add recursive redaction if events become
-    nested.
+    are not recursed. TODO(phase9-v2): add recursive redaction if events
+    become nested. Tracked in
+    docs/plans/2026-04-21-norn-phase9-observability-followups.md (item A3).
 
     Mutates event_dict in place and returns it (structlog processor convention).
     """
