@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+from unittest.mock import patch
+
 import pytest
 
 from norn.observability.logger import new_session, session_id_var
 from norn.observability.processors import (
     add_session_id,
     add_timestamp_iso,
+    make_cost_processor,
     redact_secrets,
 )
 
@@ -63,3 +66,74 @@ def test_redact_secrets_case_insensitive():
     out = redact_secrets(None, "info", event, redact_keys=["api_key", "authorization"])
     assert out["API_KEY"] == "[REDACTED]"
     assert out["Authorization"] == "[REDACTED]"
+
+
+def test_redact_does_not_clobber_token_count_fields():
+    """Regression: default redact_keys must not match prompt_tokens/completion_tokens.
+
+    Before the exact-match fix, 'token' as a redact key used substring
+    matching, which clobbered LLM usage metrics.
+    """
+    event = {
+        "prompt_tokens": 42,
+        "completion_tokens": 17,
+        "total_tokens": 59,
+        "token": "secret-value",
+    }
+    out = redact_secrets(
+        None,
+        "info",
+        event,
+        redact_keys=["token", "api_key", "authorization", "password"],
+    )
+    assert out["prompt_tokens"] == 42
+    assert out["completion_tokens"] == 17
+    assert out["total_tokens"] == 59
+    assert out["token"] == "[REDACTED]"  # exact match still redacted
+
+
+def test_cost_processor_disabled_adds_nothing():
+    processor = make_cost_processor(enabled=False)
+    out = processor(
+        None,
+        "info",
+        {
+            "event": "llm.complete",
+            "model": "gpt-4",
+            "prompt_tokens": 10,
+            "completion_tokens": 5,
+        },
+    )
+    assert "cost_usd" not in out
+
+
+def test_cost_processor_ignores_non_llm_events():
+    processor = make_cost_processor(enabled=True)
+    out = processor(None, "info", {"event": "tool.call", "tool_name": "read_file"})
+    assert "cost_usd" not in out
+
+
+def test_cost_processor_happy_path():
+    processor = make_cost_processor(enabled=True)
+    event = {
+        "event": "llm.complete",
+        "model": "gpt-4",
+        "prompt_tokens": 10,
+        "completion_tokens": 5,
+    }
+    with patch("litellm.completion_cost", return_value=0.00012345678):
+        out = processor(None, "info", event)
+    assert out["cost_usd"] == 0.000123  # rounded to 6 decimals
+
+
+def test_cost_processor_fail_open_on_exception():
+    processor = make_cost_processor(enabled=True)
+    event = {
+        "event": "llm.complete",
+        "model": "unknown-model",
+        "prompt_tokens": 10,
+        "completion_tokens": 5,
+    }
+    with patch("litellm.completion_cost", side_effect=RuntimeError("unknown model")):
+        out = processor(None, "info", event)
+    assert out["cost_usd"] is None

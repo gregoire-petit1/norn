@@ -25,10 +25,15 @@ def add_timestamp_iso(logger: Any, method_name: str, event_dict: dict[str, Any])
 
 
 def make_redact_processor(redact_keys: list[str]):
-    """Factory: bind redact keys at init_logging time."""
+    """Factory: bind redact keys at init_logging time.
+
+    Takes a defensive copy so later mutation of the passed list by the caller
+    does not affect the processor's behavior.
+    """
+    frozen_keys = list(redact_keys)
 
     def redact(logger: Any, method_name: str, event_dict: dict[str, Any]) -> dict[str, Any]:
-        return redact_secrets(logger, method_name, event_dict, redact_keys=redact_keys)
+        return redact_secrets(logger, method_name, event_dict, redact_keys=frozen_keys)
 
     return redact
 
@@ -39,11 +44,22 @@ def redact_secrets(
     event_dict: dict[str, Any],
     redact_keys: list[str] | None = None,
 ) -> dict[str, Any]:
-    """Replace sensitive field values with [REDACTED] (case-insensitive match)."""
+    """Replace values of sensitive fields with [REDACTED].
+
+    Matching is exact on key name (case-insensitive). Users wanting
+    fuzzy matching should add each variant explicitly to redact_keys,
+    e.g. ['api_key', 'openai_api_key', 'x_api_key'].
+
+    Note: only walks top-level keys of event_dict. Nested dicts/lists
+    are not recursed. TODO(T6): add recursive redaction if events become
+    nested.
+
+    Mutates event_dict in place and returns it (structlog processor convention).
+    """
     keys = redact_keys or []
-    lowered = [k.lower() for k in keys]
+    lowered = {k.lower() for k in keys}
     for key in list(event_dict.keys()):
-        if any(pattern in key.lower() for pattern in lowered):
+        if key.lower() in lowered:
             event_dict[key] = "[REDACTED]"
     return event_dict
 

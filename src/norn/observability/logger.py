@@ -15,8 +15,6 @@ if TYPE_CHECKING:
 
 session_id_var: ContextVar[str | None] = ContextVar("norn_session_id", default=None)
 
-_configured: bool = False
-
 
 def new_session() -> str:
     """Generate a new session UUID and bind to contextvar."""
@@ -36,8 +34,6 @@ def init_logging(config: LoggingConfig, cli_level_override: str | None = None) -
     Idempotent: safe to call multiple times; subsequent calls replace handlers.
     If config.enabled is False, logging is silenced (no handlers attached).
     """
-    global _configured
-
     # Avoid duplicate handler registration on re-init
     root = logging.getLogger()
     for h in list(root.handlers):
@@ -45,12 +41,14 @@ def init_logging(config: LoggingConfig, cli_level_override: str | None = None) -
 
     if not config.enabled:
         root.setLevel(logging.CRITICAL + 1)  # silence everything
+        # structlog's make_filtering_bound_logger only accepts canonical levels
+        # (10/20/30/40/50). CRITICAL (50) combined with root.setLevel(CRITICAL+1)
+        # ensures every log call is silently dropped.
         structlog.configure(
             processors=[structlog.dev.ConsoleRenderer()],
             wrapper_class=structlog.make_filtering_bound_logger(logging.CRITICAL),
             cache_logger_on_first_use=False,  # allow re-config in tests
         )
-        _configured = True
         return
 
     # Resolve level: CLI override > env > config
@@ -91,5 +89,3 @@ def init_logging(config: LoggingConfig, cli_level_override: str | None = None) -
         root.addHandler(build_console_handler(shared_processors))
     if config.output in {"file", "both"}:
         root.addHandler(build_file_handler(config.file_dir, shared_processors))
-
-    _configured = True

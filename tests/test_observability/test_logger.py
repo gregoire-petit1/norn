@@ -50,9 +50,38 @@ def test_session_id_propagates_across_await():
 
 
 def test_init_logging_idempotent(tmp_path):
+    """Calling init_logging multiple times must not duplicate handlers."""
+    import logging
+
     cfg = LoggingConfig(enabled=True, output="file", file_dir=str(tmp_path))
     init_logging(cfg)
-    init_logging(cfg)  # Should not raise or duplicate handlers
+    handler_count = len(logging.getLogger().handlers)
+    init_logging(cfg)
+    init_logging(cfg)
+    assert len(logging.getLogger().handlers) == handler_count
+
+
+def test_session_id_isolated_across_task_group():
+    """Each task in a TaskGroup sees its own session_id.
+
+    Phase 7's CoordinatorEngine uses TaskGroup; this guards against
+    leakage where one worker's session_id bleeds into another.
+    """
+    results: dict[str, str] = {}
+
+    async def worker(name: str):
+        new_session()  # each task gets its own UUID
+        results[name] = session_id_var.get()
+
+    async def main():
+        async with asyncio.TaskGroup() as tg:
+            tg.create_task(worker("a"))
+            tg.create_task(worker("b"))
+
+    asyncio.run(main())
+    assert results["a"] != results["b"]
+    assert len(results["a"]) == 36
+    assert len(results["b"]) == 36
 
 
 def test_get_logger_returns_bound_logger():
