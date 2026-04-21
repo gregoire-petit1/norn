@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from norn.core.models import Message, Role
 from norn.core.router import Tier, _classify_complexity
 
@@ -32,15 +34,30 @@ def test_classify_long_history_is_standard():
     assert _classify_complexity(messages, []) == Tier.STANDARD
 
 
-def test_classify_keyword_in_prompt_is_standard():
-    for kw in ("architect", "design", "refactor", "optimize", "analyze", "compare"):
-        messages = [_msg(f"please {kw} this")]
-        assert _classify_complexity(messages, []) == Tier.STANDARD, f"keyword={kw}"
+@pytest.mark.parametrize(
+    "keyword",
+    ["architect", "design", "refactor", "optimize", "analyze", "compare"],
+)
+def test_classify_keyword_in_prompt_is_standard(keyword: str):
+    messages = [_msg(f"please {keyword} this")]
+    assert _classify_complexity(messages, []) == Tier.STANDARD
 
 
 def test_classify_keyword_case_insensitive():
     messages = [_msg("REFACTOR this module")]
     assert _classify_complexity(messages, []) == Tier.STANDARD
+
+
+def test_classify_keyword_with_trailing_punctuation():
+    """Regression: 'refactor.' (with punctuation) must still match the keyword."""
+    messages = [_msg("please refactor.")]
+    assert _classify_complexity(messages, []) == Tier.STANDARD
+
+
+def test_classify_keyword_substring_does_not_match():
+    """'refactoring' (substring) must NOT match 'refactor' (word boundary)."""
+    messages = [_msg("refactoring code")]
+    assert _classify_complexity(messages, []) == Tier.FAST
 
 
 def test_classify_many_tools_is_standard():
