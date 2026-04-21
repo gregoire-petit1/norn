@@ -639,3 +639,107 @@ async def test_event_ordering_llm_before_tool_after_llm(log_dir: Path) -> None:
     # And both bracketed by agent.run start/end.
     assert i_start < i_llm1
     assert i_llm2 < i_end
+
+
+# --------------------------------------------------------------------------- #
+# D3.2 - denied destructive command path
+# --------------------------------------------------------------------------- #
+
+
+class _BashInput(BaseModel):
+    command: str
+
+
+class _BashLikeTool:
+    """A HIGH-risk tool named ``bash`` so the RiskClassifier can flag
+    destructive commands and trigger a permission denial under STRICT mode.
+
+    The tool's body is never reached in the denied-path test — the
+    PermissionChecker rejects the call before execute() is invoked.
+    """
+
+    name: str = "bash"
+    description: str = "Execute a shell command (mock)."
+    risk_level: RiskLevel = RiskLevel.HIGH
+    input_model: type[BaseModel] = _BashInput
+
+    async def execute(self, input: _BashInput, ctx: Any) -> ToolResult:  # noqa: A002
+        return ToolResult(output=f"ran:{input.command}")
+
+
+def _make_router_agent_with_bash(
+    *,
+    permission_mode,
+    completion_fn: Any = None,
+):
+    """Variant of ``_make_router_agent`` with a HIGH-risk ``bash`` tool
+    instead of the LOW-risk echo tool."""
+    from norn.core.agent import AgentLoop
+    from norn.core.router import RouterProvider
+    from norn.tools.registry import ToolRegistry
+
+    cfg = RouterConfig(tiers={"fast": RouterTierConfig(provider="openai", model="model-fast")})
+    router = RouterProvider(cfg)
+    if completion_fn is not None:
+        for provider in router._providers.values():
+            provider._completion_fn = completion_fn
+
+    registry = ToolRegistry()
+    registry.register(_BashLikeTool())
+
+    checker = PermissionChecker(mode=permission_mode, classifier=RiskClassifier())
+    return AgentLoop(llm=router, registry=registry, permission_checker=checker)
+
+
+@pytest.mark.asyncio
+async def test_denied_destructive_command_logs_permission_denied(log_dir: Path) -> None:
+    """E2E: a destructive ``rm -rf`` under STRICT permission mode is denied
+    by the classifier; ``tool.call`` records ``error_type=PermissionDenied``
+    and ``permission.decision`` carries ``reason=destructive_denied``. The
+    agent loop continues and produces a clean final answer.
+    """
+    agent = _make_router_agent_with_bash(permission_mode=PermissionMode.STRICT)
+
+    # Turn 1: model asks to rm -rf (destructive). Turn 2: it acknowledges denial.
+    first = _make_llm_response(
+        content=None,
+        tool_calls=[
+            _make_tool_call_chunk(
+                call_id="c1",
+                tool_name="bash",
+                arguments='{"command": "rm -rf /tmp/foo"}',
+            )
+        ],
+        finish_reason="tool_calls",
+    )
+    second = _make_llm_response(content="Understood, command was denied.", tool_calls=None)
+
+    with patch(
+        "litellm.acompletion",
+        new=AsyncMock(side_effect=[first, second]),
+    ):
+        result = await agent.run("please rm -rf")
+
+    assert result.content == "Understood, command was denied."
+
+    events = _events(_today_file(log_dir))
+
+    tool_calls = [e for e in events if e.get("event") == "tool.call"]
+    assert len(tool_calls) == 1
+    tc = tool_calls[0]
+    assert tc["success"] is False
+    assert tc["error_type"] == "PermissionDenied"
+    assert "Permission denied" in tc["error_message"]
+
+    perm_decisions = [e for e in events if e.get("event") == "permission.decision"]
+    assert len(perm_decisions) == 1
+    pd = perm_decisions[0]
+    assert pd["granted"] is False
+    assert pd["reason"] == "destructive_denied"
+    assert pd["tool_name"] == "bash"
+
+    # Agent loop completed cleanly: exactly one agent.run start + end with success=True.
+    agent_events = [e for e in events if e.get("event") == "agent.run"]
+    phases = [e["phase"] for e in agent_events]
+    assert phases == ["start", "end"]
+    assert agent_events[1]["success"] is True
