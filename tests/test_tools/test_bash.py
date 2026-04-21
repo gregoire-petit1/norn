@@ -37,3 +37,43 @@ async def test_bash_timeout(tool, tmp_path):
     result = await tool.execute(BashInput(command="sleep 10", timeout=1), ctx)
     assert result.is_error is True
     assert "timeout" in result.error.lower()
+
+
+# --------------------------------------------------------------------------- #
+# B1.5 - ToolErrorType taxonomy
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.asyncio
+async def test_bash_nonzero_exit_sets_execution_error(tool, tmp_path):
+    """A command that exits non-zero is a runtime failure → EXECUTION_ERROR."""
+    from norn.tools.base import ToolErrorType
+
+    ctx = ToolContext(cwd=str(tmp_path))
+    result = await tool.execute(BashInput(command="false"), ctx)
+    assert result.is_error is True
+    assert result.error_type == ToolErrorType.EXECUTION_ERROR.value
+
+
+@pytest.mark.asyncio
+async def test_bash_timeout_sets_timeout(tool, tmp_path):
+    """A command exceeding the timeout window tags as TIMEOUT."""
+    from norn.tools.base import ToolErrorType
+
+    ctx = ToolContext(cwd=str(tmp_path))
+    result = await tool.execute(BashInput(command="sleep 10", timeout=1), ctx)
+    assert result.is_error is True
+    assert result.error_type == ToolErrorType.TIMEOUT.value
+
+
+@pytest.mark.asyncio
+async def test_bash_invalid_cwd_sets_execution_error(tool, tmp_path):
+    """A non-existent cwd → subprocess raises FileNotFoundError before
+    timeout/exit code paths apply. Caught by the generic ``except`` →
+    EXECUTION_ERROR (the catch-all bucket for unexpected runtime issues)."""
+    from norn.tools.base import ToolErrorType
+
+    ctx = ToolContext(cwd=str(tmp_path / "does_not_exist"))
+    result = await tool.execute(BashInput(command="echo hi"), ctx)
+    assert result.is_error is True
+    assert result.error_type == ToolErrorType.EXECUTION_ERROR.value

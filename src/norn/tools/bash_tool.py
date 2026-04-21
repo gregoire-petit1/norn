@@ -6,7 +6,7 @@ import asyncio
 
 from pydantic import BaseModel
 
-from norn.tools.base import RiskLevel, ToolContext, ToolResult
+from norn.tools.base import RiskLevel, ToolContext, ToolErrorType, ToolResult
 
 
 class BashInput(BaseModel):
@@ -38,7 +38,10 @@ class BashTool:
             errors = stderr.decode("utf-8", errors="replace")
 
             if process.returncode != 0:
-                return ToolResult(error=f"Exit code {process.returncode}\n{errors or output}")
+                return ToolResult(
+                    error=f"Exit code {process.returncode}\n{errors or output}",
+                    error_type=ToolErrorType.EXECUTION_ERROR.value,
+                )
 
             combined = output
             if errors:
@@ -47,6 +50,9 @@ class BashTool:
 
         except TimeoutError:
             process.kill()
-            return ToolResult(error=f"Timeout: command exceeded {input.timeout}s")
+            return ToolResult(
+                error=f"Timeout: command exceeded {input.timeout}s",
+                error_type=ToolErrorType.TIMEOUT.value,
+            )
         except Exception as e:
-            return ToolResult(error=str(e))
+            return ToolResult(error=str(e), error_type=ToolErrorType.EXECUTION_ERROR.value)
