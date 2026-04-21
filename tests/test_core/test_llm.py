@@ -84,3 +84,27 @@ async def test_complete_with_tool_calls(provider):
         assert result.has_tool_calls is True
         assert result.tool_calls[0].name == "bash"
         assert result.tool_calls[0].arguments == {"command": "ls"}
+
+
+# --------------------------------------------------------------------------- #
+# D3.4 - empty messages edge case
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.asyncio
+async def test_complete_empty_messages_raises_value_error(provider):
+    """Empty ``messages`` is a programmer error: a coding agent must always
+    have at least a system or user turn to react to. Without an explicit
+    guard, behaviour depends on the underlying provider — some 4xx, some
+    silently return empty completions, some hang. Surface it early and
+    cheaply with a deterministic ``ValueError``, before any network call.
+
+    The acompletion mock must NEVER be awaited — the guard short-circuits.
+    """
+    fake_completion = AsyncMock()
+    p = LiteLLMProvider(model="ollama/qwen2.5-coder:14b", completion_fn=fake_completion)
+
+    with pytest.raises(ValueError, match="messages cannot be empty"):
+        await p.complete(messages=[])
+
+    fake_completion.assert_not_awaited()

@@ -132,6 +132,12 @@ class LiteLLMProvider:
         temperature: float = 0.0,
         max_tokens: int = 4096,
     ) -> LLMResponse:
+        # Guard: empty messages is a programmer error and the underlying
+        # provider behaviour ranges from "4xx" to "silent empty completion"
+        # to "hang". Surface it deterministically before any network call.
+        if not messages:
+            raise ValueError("messages cannot be empty")
+
         kwargs: dict = {
             "model": self.model,
             "messages": _messages_to_dicts(messages),
