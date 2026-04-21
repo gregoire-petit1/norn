@@ -790,3 +790,72 @@ async def test_agent_run_failure_emits_session_end_and_propagates(log_dir: Path)
     assert end_ev["error_type"] == "_ProviderError"
     assert "provider 500" in end_ev["error_message"]
     assert isinstance(end_ev["duration_ms"], int) and end_ev["duration_ms"] >= 0
+
+
+# --------------------------------------------------------------------------- #
+# D3.4 - multi-tool turn: a single LLM response with N tool_calls
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.asyncio
+async def test_multi_tool_turn_executes_in_order_and_logs_separately(
+    log_dir: Path,
+) -> None:
+    """E2E: a single LLM turn returning 2 tool_calls runs them sequentially
+    in arrival order and emits 2 distinct ``tool.call`` events (one per
+    sub-call), each tagged with its own ``tool_name`` and ``success=True``.
+    """
+    agent = _make_router_agent(permission_mode=PermissionMode.AUTO)
+
+    # Turn 1: two echo calls in a single tool_calls list.
+    # Turn 2: final text answer.
+    first = _make_llm_response(
+        content=None,
+        tool_calls=[
+            _make_tool_call_chunk(call_id="c1", tool_name="echo", arguments='{"msg": "alpha"}'),
+            _make_tool_call_chunk(call_id="c2", tool_name="echo", arguments='{"msg": "beta"}'),
+        ],
+        finish_reason="tool_calls",
+    )
+    second = _make_llm_response(content="both done", tool_calls=None)
+
+    with patch(
+        "litellm.acompletion",
+        new=AsyncMock(side_effect=[first, second]),
+    ):
+        result = await agent.run("call echo twice")
+
+    assert result.content == "both done"
+
+    events = _events(_today_file(log_dir))
+
+    tool_calls = [e for e in events if e.get("event") == "tool.call"]
+    assert len(tool_calls) == 2, (
+        f"expected 2 tool.call events from a single multi-tool turn, got {len(tool_calls)}"
+    )
+    # Both succeeded (no error_type emitted on success path).
+    for tc in tool_calls:
+        assert tc["tool_name"] == "echo"
+        assert tc["success"] is True
+        assert "error_type" not in tc
+
+    # Ordering: both tool.call events are emitted between the single
+    # llm.complete (turn 1, finish_reason=tool_calls) and the final
+    # llm.complete (turn 2). There must be exactly 2 llm.complete events.
+    llm_events = [e for e in events if e.get("event") == "llm.complete"]
+    assert len(llm_events) == 2, f"expected 2 llm.complete (1 per turn), got {len(llm_events)}"
+
+    stream = [(i, e.get("event")) for i, e in enumerate(events)]
+    llm_idx = [i for i, n in stream if n == "llm.complete"]
+    tool_idx = [i for i, n in stream if n == "tool.call"]
+    # Both tool.call events fall between the two llm.complete events.
+    assert llm_idx[0] < tool_idx[0] < tool_idx[1] < llm_idx[1], (
+        f"expected llm1 < tool1 < tool2 < llm2, got llm={llm_idx} tool={tool_idx}"
+    )
+
+    # Permission was checked once per sub-call (LOW risk → auto_approved each time).
+    perm_decisions = [e for e in events if e.get("event") == "permission.decision"]
+    assert len(perm_decisions) == 2
+    for pd in perm_decisions:
+        assert pd["granted"] is True
+        assert pd["tool_name"] == "echo"
