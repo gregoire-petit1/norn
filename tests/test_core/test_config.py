@@ -137,3 +137,27 @@ def test_router_config_from_yaml(tmp_path):
     config = NornConfig.from_yaml(config_file)
     assert config.router.enabled is True
     assert config.router.tiers["fast"].provider == "ollama"
+
+
+# --------------------------------------------------------------------------- #
+# G.3 — prompt cache config knob
+# --------------------------------------------------------------------------- #
+
+
+def test_default_llm_prompt_cache_is_true():
+    """prompt_cache defaults to True for opt-out-by-config behaviour."""
+    config = NornConfig()
+    assert config.llm.prompt_cache is True
+
+
+def test_llm_prompt_cache_can_be_disabled_via_yaml(tmp_path):
+    """YAML can disable prompt cache explicitly."""
+    config_file = tmp_path / "config.yaml"
+    config_file.write_text(
+        "llm:\n"
+        "  provider: anthropic\n"
+        "  model: anthropic/claude-sonnet-4\n"
+        "  prompt_cache: false\n"
+    )
+    config = NornConfig.from_yaml(config_file)
+    assert config.llm.prompt_cache is False

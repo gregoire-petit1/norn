@@ -107,7 +107,12 @@ def _build_provider(
         return RouterProvider(config.router, default_tier=default_tier)
 
     # Legacy single-provider path
-    return build_litellm_provider(config.llm.provider, config.llm.model, config.llm.api_base)
+    return build_litellm_provider(
+        config.llm.provider,
+        config.llm.model,
+        config.llm.api_base,
+        prompt_cache=config.llm.prompt_cache,
+    )
 
 
 async def _cli_prompt_fn(request: PermissionRequest, description: str) -> bool:

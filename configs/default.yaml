@@ -16,6 +16,12 @@ llm:
   #   model: "qwen2.5-coder:14b"
   temperature: 0.0
   max_tokens: 4096
+  # Phase 9 v2 — Workstream G. Tag system prompt + last tool schema with
+  # `cache_control: ephemeral` for providers that honour it (Anthropic
+  # direct, Anthropic via OpenRouter, OpenAI gpt-4o/4.1). Harmless on
+  # other providers thanks to an internal eligibility gate. Disable to
+  # opt out globally.
+  prompt_cache: true
 
 permissions:
   mode: "interactive"  # interactive | auto | yolo | strict

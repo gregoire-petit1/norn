@@ -109,7 +109,13 @@ def _is_technical_error(exc: Exception) -> bool:
     return any(signal in msg for signal in _TECHNICAL_ERROR_SIGNALS)
 
 
-def build_litellm_provider(provider: str, model: str, api_base: str | None) -> LiteLLMProvider:
+def build_litellm_provider(
+    provider: str,
+    model: str,
+    api_base: str | None,
+    *,
+    prompt_cache: bool = True,
+) -> LiteLLMProvider:
     """Build a LiteLLMProvider, applying the LiteLLM provider-prefix convention.
 
     Used both internally by `RouterProvider` (to instantiate per-tier providers) and
@@ -120,7 +126,7 @@ def build_litellm_provider(provider: str, model: str, api_base: str | None) -> L
         prefixed_model = f"ollama/{model}"
     elif provider == "openrouter":
         prefixed_model = f"openrouter/{model}"
-    return LiteLLMProvider(model=prefixed_model, api_base=api_base)
+    return LiteLLMProvider(model=prefixed_model, api_base=api_base, prompt_cache=prompt_cache)
 
 
 class RouterProvider:

@@ -28,6 +28,10 @@ class LLMConfig(BaseModel):
     temperature: float = 0.0
     max_tokens: int = 4096
     api_base: str | None = None
+    # Phase 9 v2 — Workstream G. Opt-out per call site; the provider also
+    # gates internally on _supports_prompt_cache(model) so this is harmless
+    # on non-supporting models.
+    prompt_cache: bool = True
 
 
 class PermissionsConfig(BaseModel):
