@@ -45,3 +45,10 @@ router:
       provider: "openrouter"
       model: "anthropic/claude-sonnet-4"
 
+logging:
+  enabled: true
+  level: "INFO"          # DEBUG | INFO | WARNING | ERROR
+  output: "both"         # console | file | both
+  file_dir: "~/.norn/logs"
+  include_cost: true
+

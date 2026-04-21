@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 from enum import StrEnum
 from pathlib import Path
+from typing import Literal
 
 import yaml
 from pydantic import BaseModel, Field
@@ -67,6 +68,17 @@ class RouterConfig(BaseModel):
     tiers: dict[str, RouterTierConfig] = Field(default_factory=dict)
 
 
+class LoggingConfig(BaseModel):
+    enabled: bool = True
+    level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
+    output: Literal["console", "file", "both"] = "both"
+    file_dir: str = "~/.norn/logs"
+    include_cost: bool = True
+    redact_keys: list[str] = Field(
+        default_factory=lambda: ["api_key", "authorization", "token", "password"]
+    )
+
+
 class NornConfig(BaseModel):
     llm: LLMConfig = LLMConfig()
     permissions: PermissionsConfig = PermissionsConfig()
@@ -75,6 +87,7 @@ class NornConfig(BaseModel):
     coordinator: CoordinatorConfig = CoordinatorConfig()
     mcp: MCPConfig = MCPConfig()
     router: RouterConfig = RouterConfig()
+    logging: LoggingConfig = LoggingConfig()
 
     @classmethod
     def from_yaml(cls, path: Path) -> NornConfig:
