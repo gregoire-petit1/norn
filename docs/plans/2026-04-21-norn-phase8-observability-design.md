@@ -148,13 +148,27 @@ All events carry automatic fields injected by processors:
 ```
 
 #### `tool.call`
+
+Success events omit error fields:
 ```json
 {
   "event": "tool.call",
   "tool_name": "read_file",
   "duration_ms": 42,
-  "success": true,
-  "error": null
+  "success": true
+}
+```
+
+Failure events emit the harmonised `error_type` / `error_message` pair
+(see Phase 9 follow-up A1):
+```json
+{
+  "event": "tool.call",
+  "tool_name": "bash",
+  "duration_ms": 17,
+  "success": false,
+  "error_type": "PermissionDenied",
+  "error_message": "Destructive command denied in strict mode"
 }
 ```
 
