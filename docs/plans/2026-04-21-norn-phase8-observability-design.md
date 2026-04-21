@@ -487,13 +487,25 @@ All design questions resolved during brainstorming. Ready for plan writing.
 
 ## 15. Acceptance criteria
 
-- [ ] All 6 event types emitted from a single `norn run "..."` command
-- [ ] JSONL file at `~/.norn/logs/YYYY-MM-DD.jsonl` contains valid JSON per line
-- [ ] All events in a run share the same `session_id`
-- [ ] `llm.complete` events include `cost_usd` when model supported by litellm
-- [ ] `--verbose` flag emits DEBUG events
-- [ ] `LoggingConfig.enabled=false` results in zero log output
-- [ ] Zero new ruff errors
-- [ ] All 420 existing tests still pass + ~45 new tests pass
-- [ ] No changes to `LLMProvider` protocol
-- [ ] No engine directly depends on `observability.*` (only `get_logger()`)
+- [x] All 6 event types emitted from a single `norn run "..."` command
+      (validated end-to-end by
+      `tests/test_observability/test_e2e.py::test_full_run_emits_all_core_events_with_correlated_session_id`)
+- [x] JSONL file at `~/.norn/logs/YYYY-MM-DD.jsonl` contains valid JSON per line
+      (`DailyRotatingJsonlHandler` + sink tests; E2E tests parse lines as JSON)
+- [x] All events in a run share the same `session_id`
+      (asserted in E2E test #1; concurrent isolation covered by E2E test #7)
+- [x] `llm.complete` events include `cost_usd` when model supported by litellm
+      (`test_cost_included_when_enabled`; fail-open when computation fails)
+- [x] `--verbose` flag emits DEBUG events
+      (level resolution: CLI override > env > config, `init_logging`)
+- [x] `LoggingConfig.enabled=false` results in zero log output
+      (`test_disabled_logging_writes_nothing`)
+- [x] Zero new ruff errors (baseline 37, unchanged)
+- [x] All 420 existing tests still pass + ~45 new tests pass
+      (final count: 485 tests passing)
+- [x] No changes to `LLMProvider` protocol
+- [x] No engine directly depends on `observability.*` (only `get_logger()`)
+
+**Phase 8 complete** — all 6 events wired (`agent.run`, `llm.complete`,
+`routing.decision`, `fallback`, `tool.call`, `permission.decision`), 485 tests
+passing, ruff delta 0.
