@@ -1,6 +1,11 @@
 """Tests for configuration system."""
 
-from norn.core.config import NornConfig, PermissionMode
+from norn.core.config import (
+    NornConfig,
+    PermissionMode,
+    RouterConfig,  # noqa: F401  (re-exported for downstream tests)
+    RouterTierConfig,
+)
 
 
 def test_default_config():
@@ -77,3 +82,48 @@ def test_coordinator_config_custom():
     assert config.coordinator.enabled is True
     assert config.coordinator.activation_threshold == 1
     assert config.coordinator.max_workers_per_phase == 3
+
+
+def test_router_config_defaults():
+    config = NornConfig()
+    assert config.router.enabled is False
+    assert config.router.tiers == {}
+
+
+def test_router_tier_config():
+    tier = RouterTierConfig(provider="ollama", model="qwen2.5-coder:7b")
+    assert tier.provider == "ollama"
+    assert tier.model == "qwen2.5-coder:7b"
+    assert tier.api_base is None
+
+
+def test_router_config_with_tiers():
+    config = NornConfig(
+        router={
+            "enabled": True,
+            "tiers": {
+                "fast": {"provider": "ollama", "model": "qwen2.5-coder:7b"},
+                "standard": {"provider": "openrouter", "model": "stepfun/step-3.5-flash:free"},
+                "powerful": {"provider": "openrouter", "model": "anthropic/claude-sonnet-4"},
+            },
+        }
+    )
+    assert config.router.enabled is True
+    assert config.router.tiers["fast"].model == "qwen2.5-coder:7b"
+    assert config.router.tiers["standard"].provider == "openrouter"
+    assert config.router.tiers["powerful"].model == "anthropic/claude-sonnet-4"
+
+
+def test_router_config_from_yaml(tmp_path):
+    config_file = tmp_path / "config.yaml"
+    config_file.write_text(
+        "router:\n"
+        "  enabled: true\n"
+        "  tiers:\n"
+        "    fast:\n"
+        "      provider: ollama\n"
+        "      model: qwen2.5-coder:7b\n"
+    )
+    config = NornConfig.from_yaml(config_file)
+    assert config.router.enabled is True
+    assert config.router.tiers["fast"].provider == "ollama"

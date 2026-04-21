@@ -56,6 +56,17 @@ class CoordinatorConfig(BaseModel):
     worker_model: str | None = None  # None = use main LLM
 
 
+class RouterTierConfig(BaseModel):
+    provider: str
+    model: str
+    api_base: str | None = None
+
+
+class RouterConfig(BaseModel):
+    enabled: bool = False
+    tiers: dict[str, RouterTierConfig] = {}
+
+
 class NornConfig(BaseModel):
     llm: LLMConfig = LLMConfig()
     permissions: PermissionsConfig = PermissionsConfig()
@@ -63,6 +74,7 @@ class NornConfig(BaseModel):
     memory: MemorySystemConfig = MemorySystemConfig()
     coordinator: CoordinatorConfig = CoordinatorConfig()
     mcp: MCPConfig = MCPConfig()
+    router: RouterConfig = RouterConfig()
 
     @classmethod
     def from_yaml(cls, path: Path) -> NornConfig:
