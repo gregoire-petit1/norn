@@ -76,7 +76,7 @@ class PermissionChecker:
         mode = self.mode.value
 
         if mode == "yolo":
-            return PermissionDecision(approved=True)
+            return PermissionDecision(approved=True, reason="yolo")
 
         if mode == "strict":
             # Destructive = always denied, no prompt
@@ -91,13 +91,13 @@ class PermissionChecker:
         if mode == "auto":
             # LOW + MEDIUM auto-approved, HIGH needs prompt
             if _RISK_ORDER.get(effective_risk, 2) <= _RISK_ORDER["medium"]:
-                return PermissionDecision(approved=True)
+                return PermissionDecision(approved=True, reason="auto_approved_low_medium")
             return await self._prompt_or_deny(request, effective_risk)
 
         # interactive (default)
         # LOW auto-approved, MEDIUM + HIGH need prompt
         if _RISK_ORDER.get(effective_risk, 2) <= _RISK_ORDER["low"]:
-            return PermissionDecision(approved=True)
+            return PermissionDecision(approved=True, reason="auto_approved_low")
         return await self._prompt_or_deny(request, effective_risk)
 
     async def _prompt_or_deny(
@@ -120,5 +120,5 @@ class PermissionChecker:
         approved = await self.prompt_fn(request, description)
         return PermissionDecision(
             approved=approved,
-            reason=None if approved else "User denied",
+            reason="user_approved" if approved else "user_denied",
         )

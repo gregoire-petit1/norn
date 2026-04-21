@@ -184,3 +184,73 @@ class TestStrictMode:
         req = PermissionRequest(tool_name="file_read", risk_level="low", arguments={"path": "x"})
         decision = await checker.check(req)
         assert decision.approved is True
+
+
+class TestDecisionReasonSynthesis:
+    """Auto-approve / user-prompted paths must populate ``reason`` (A2)."""
+
+    @pytest.mark.asyncio
+    async def test_yolo_mode_decision_reason_is_yolo(self, classifier):
+        checker = PermissionChecker(mode=PermissionMode.YOLO, classifier=classifier)
+        req = PermissionRequest(tool_name="bash", risk_level="high", arguments={"command": "ls"})
+        decision = await checker.check(req)
+        assert decision.approved is True
+        assert decision.reason == "yolo"
+
+    @pytest.mark.asyncio
+    async def test_auto_mode_low_risk_reason_is_auto_approved_low_medium(self, classifier):
+        checker = PermissionChecker(mode=PermissionMode.AUTO, classifier=classifier)
+        req = PermissionRequest(tool_name="file_read", risk_level="low", arguments={"path": "x"})
+        decision = await checker.check(req)
+        assert decision.approved is True
+        assert decision.reason == "auto_approved_low_medium"
+
+    @pytest.mark.asyncio
+    async def test_auto_mode_medium_risk_reason_is_auto_approved_low_medium(self, classifier):
+        checker = PermissionChecker(mode=PermissionMode.AUTO, classifier=classifier)
+        req = PermissionRequest(
+            tool_name="file_write",
+            risk_level="medium",
+            arguments={"path": "src/main.py", "content": "x"},
+        )
+        decision = await checker.check(req)
+        assert decision.approved is True
+        assert decision.reason == "auto_approved_low_medium"
+
+    @pytest.mark.asyncio
+    async def test_interactive_mode_low_risk_reason_is_auto_approved_low(self, classifier):
+        checker = PermissionChecker(mode=PermissionMode.INTERACTIVE, classifier=classifier)
+        req = PermissionRequest(tool_name="file_read", risk_level="low", arguments={"path": "x"})
+        decision = await checker.check(req)
+        assert decision.approved is True
+        assert decision.reason == "auto_approved_low"
+
+    @pytest.mark.asyncio
+    async def test_prompted_approval_reason_is_user_approved(self, classifier):
+        prompt_fn = AsyncMock(return_value=True)
+        checker = PermissionChecker(
+            mode=PermissionMode.INTERACTIVE, classifier=classifier, prompt_fn=prompt_fn
+        )
+        req = PermissionRequest(
+            tool_name="file_write",
+            risk_level="medium",
+            arguments={"path": "src/main.py", "content": "x"},
+        )
+        decision = await checker.check(req)
+        assert decision.approved is True
+        assert decision.reason == "user_approved"
+
+    @pytest.mark.asyncio
+    async def test_prompted_denial_reason_is_user_denied(self, classifier):
+        prompt_fn = AsyncMock(return_value=False)
+        checker = PermissionChecker(
+            mode=PermissionMode.INTERACTIVE, classifier=classifier, prompt_fn=prompt_fn
+        )
+        req = PermissionRequest(
+            tool_name="file_write",
+            risk_level="medium",
+            arguments={"path": "src/main.py", "content": "x"},
+        )
+        decision = await checker.check(req)
+        assert decision.approved is False
+        assert decision.reason == "user_denied"
