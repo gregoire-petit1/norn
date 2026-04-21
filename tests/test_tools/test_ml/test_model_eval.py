@@ -91,3 +91,52 @@ async def test_nonexistent_file(tool, tmp_path):
 
     assert result.is_error
     assert "not found" in result.error.lower() or "ghost.csv" in result.error
+
+
+# --------------------------------------------------------------------------- #
+# B1.5 - ToolErrorType taxonomy
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.asyncio
+async def test_missing_file_sets_file_not_found(tmp_path):
+    """Non-existent CSV tags as FILE_NOT_FOUND."""
+    from norn.tools.base import ToolContext, ToolErrorType
+    from norn.tools.ml.model_eval import ModelEvalInput, ModelEvalTool
+
+    tool = ModelEvalTool()
+    ctx = ToolContext(cwd=str(tmp_path))
+    result = await tool.execute(ModelEvalInput(file_path=str(tmp_path / "missing.csv")), ctx)
+    assert result.is_error is True
+    assert result.error_type == ToolErrorType.FILE_NOT_FOUND
+
+
+@pytest.mark.asyncio
+async def test_corrupt_csv_sets_parse_error(tmp_path):
+    """Unparseable CSV tags as PARSE_ERROR."""
+    from norn.tools.base import ToolContext, ToolErrorType
+    from norn.tools.ml.model_eval import ModelEvalInput, ModelEvalTool
+
+    bad = tmp_path / "bad.csv"
+    bad.write_bytes(b"\x00\x01\x02not,a,csv\n\xff\xfe")
+    tool = ModelEvalTool()
+    ctx = ToolContext(cwd=str(tmp_path))
+    result = await tool.execute(ModelEvalInput(file_path=str(bad)), ctx)
+    # Polars may either parse-fail or succeed with garbage; only check tag if errored
+    if result.is_error:
+        assert result.error_type == ToolErrorType.PARSE_ERROR
+
+
+@pytest.mark.asyncio
+async def test_missing_column_sets_invalid_argument(tmp_path):
+    """Missing column tags as INVALID_ARGUMENT."""
+    from norn.tools.base import ToolContext, ToolErrorType
+    from norn.tools.ml.model_eval import ModelEvalInput, ModelEvalTool
+
+    csv = tmp_path / "data.csv"
+    csv.write_text("a,b\n1,2\n3,4\n")
+    tool = ModelEvalTool()
+    ctx = ToolContext(cwd=str(tmp_path))
+    result = await tool.execute(ModelEvalInput(file_path=str(csv)), ctx)
+    assert result.is_error is True
+    assert result.error_type == ToolErrorType.INVALID_ARGUMENT

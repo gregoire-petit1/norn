@@ -7,7 +7,7 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from norn.tools.base import RiskLevel, ToolContext, ToolResult
+from norn.tools.base import RiskLevel, ToolContext, ToolErrorType, ToolResult
 
 
 class ModelCardInput(BaseModel):
@@ -50,7 +50,10 @@ class ModelCardTool:
 
             return ToolResult(output=content)
         except Exception as e:
-            return ToolResult(error=f"Failed to generate model card: {e}")
+            return ToolResult(
+                error=f"Failed to generate model card: {e}",
+                error_type=ToolErrorType.EXECUTION_ERROR,
+            )
 
     def _build_model_card(self, input: ModelCardInput) -> str:
         sections: list[str] = []

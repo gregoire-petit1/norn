@@ -9,7 +9,7 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from norn.tools.base import RiskLevel, ToolContext, ToolResult
+from norn.tools.base import RiskLevel, ToolContext, ToolErrorType, ToolResult
 
 
 class ModelInspectorInput(BaseModel):
@@ -36,20 +36,29 @@ class ModelInspectorTool:
             import torch  # noqa: F401
             import torch.nn as nn
         except ImportError:
-            return ToolResult(error="PyTorch is not installed. Install with: pip install torch")
+            return ToolResult(
+                error="PyTorch is not installed. Install with: pip install torch",
+                error_type=ToolErrorType.NOT_SUPPORTED,
+            )
 
         filepath = Path(input.file_path)
         if not filepath.is_absolute():
             filepath = Path(ctx.cwd) / filepath
 
         if not filepath.exists():
-            return ToolResult(error=f"File not found: {filepath}")
+            return ToolResult(
+                error=f"File not found: {filepath}",
+                error_type=ToolErrorType.FILE_NOT_FOUND,
+            )
 
         # Dynamically load the module from the file path.
         module_name = f"_norn_inspector_{filepath.stem}"
         spec = importlib.util.spec_from_file_location(module_name, str(filepath))
         if spec is None or spec.loader is None:
-            return ToolResult(error=f"Cannot load module from: {filepath}")
+            return ToolResult(
+                error=f"Cannot load module from: {filepath}",
+                error_type=ToolErrorType.EXECUTION_ERROR,
+            )
 
         module = importlib.util.module_from_spec(spec)
         try:
@@ -58,17 +67,26 @@ class ModelInspectorTool:
 
             cls = getattr(module, input.class_name, None)
             if cls is None:
-                return ToolResult(error=f"Class '{input.class_name}' not found in {filepath.name}")
+                return ToolResult(
+                    error=f"Class '{input.class_name}' not found in {filepath.name}",
+                    error_type=ToolErrorType.INVALID_ARGUMENT,
+                )
 
             # Instantiate the model.
             args = input.constructor_args or {}
             try:
                 model = cls(**args)
             except Exception as e:
-                return ToolResult(error=f"Failed to instantiate {input.class_name}: {e}")
+                return ToolResult(
+                    error=f"Failed to instantiate {input.class_name}: {e}",
+                    error_type=ToolErrorType.EXECUTION_ERROR,
+                )
 
             if not isinstance(model, nn.Module):
-                return ToolResult(error=f"'{input.class_name}' is not an nn.Module subclass")
+                return ToolResult(
+                    error=f"'{input.class_name}' is not an nn.Module subclass",
+                    error_type=ToolErrorType.INVALID_ARGUMENT,
+                )
 
             # Collect layer info.
             lines: list[str] = []
@@ -107,6 +125,9 @@ class ModelInspectorTool:
             return ToolResult(output="\n".join(lines))
 
         except Exception as e:
-            return ToolResult(error=f"Error inspecting model: {e}")
+            return ToolResult(
+                error=f"Error inspecting model: {e}",
+                error_type=ToolErrorType.EXECUTION_ERROR,
+            )
         finally:
             sys.modules.pop(module_name, None)

@@ -92,3 +92,79 @@ async def test_inspect_with_constructor_args(tool, tmp_path):
     assert result.output is not None
     assert not result.is_error
     assert "36" in result.output
+
+
+# --------------------------------------------------------------------------- #
+# B1.5 - ToolErrorType taxonomy
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.asyncio
+async def test_missing_file_sets_file_not_found(tmp_path):
+    """Non-existent file tags as FILE_NOT_FOUND."""
+    from norn.tools.base import ToolContext, ToolErrorType
+    from norn.tools.ml.model_inspector import ModelInspectorInput, ModelInspectorTool
+
+    tool = ModelInspectorTool()
+    ctx = ToolContext(cwd=str(tmp_path))
+    result = await tool.execute(
+        ModelInspectorInput(file_path=str(tmp_path / "missing.py"), class_name="X"), ctx
+    )
+    assert result.is_error is True
+    assert result.error_type == ToolErrorType.FILE_NOT_FOUND
+
+
+@pytest.mark.asyncio
+async def test_missing_class_sets_invalid_argument(tmp_path):
+    """Class not found tags as INVALID_ARGUMENT."""
+    from norn.tools.base import ToolContext, ToolErrorType
+    from norn.tools.ml.model_inspector import ModelInspectorInput, ModelInspectorTool
+
+    pyfile = tmp_path / "m.py"
+    pyfile.write_text("x = 1\n")
+    tool = ModelInspectorTool()
+    ctx = ToolContext(cwd=str(tmp_path))
+    result = await tool.execute(
+        ModelInspectorInput(file_path=str(pyfile), class_name="MissingModel"), ctx
+    )
+    assert result.is_error is True
+    assert result.error_type == ToolErrorType.INVALID_ARGUMENT
+
+
+@pytest.mark.asyncio
+async def test_instantiation_failure_sets_execution_error(tmp_path):
+    """Constructor that raises tags as EXECUTION_ERROR."""
+    from norn.tools.base import ToolContext, ToolErrorType
+    from norn.tools.ml.model_inspector import ModelInspectorInput, ModelInspectorTool
+
+    pyfile = tmp_path / "broken.py"
+    pyfile.write_text(
+        "import torch.nn as nn\n"
+        "class Broken(nn.Module):\n"
+        "    def __init__(self):\n"
+        "        raise RuntimeError('boom')\n"
+    )
+    tool = ModelInspectorTool()
+    ctx = ToolContext(cwd=str(tmp_path))
+    result = await tool.execute(
+        ModelInspectorInput(file_path=str(pyfile), class_name="Broken"), ctx
+    )
+    assert result.is_error is True
+    assert result.error_type == ToolErrorType.EXECUTION_ERROR
+
+
+@pytest.mark.asyncio
+async def test_not_nn_module_sets_invalid_argument(tmp_path):
+    """Class that's not an nn.Module subclass tags as INVALID_ARGUMENT."""
+    from norn.tools.base import ToolContext, ToolErrorType
+    from norn.tools.ml.model_inspector import ModelInspectorInput, ModelInspectorTool
+
+    pyfile = tmp_path / "plain.py"
+    pyfile.write_text("class Plain:\n    pass\n")
+    tool = ModelInspectorTool()
+    ctx = ToolContext(cwd=str(tmp_path))
+    result = await tool.execute(
+        ModelInspectorInput(file_path=str(pyfile), class_name="Plain"), ctx
+    )
+    assert result.is_error is True
+    assert result.error_type == ToolErrorType.INVALID_ARGUMENT

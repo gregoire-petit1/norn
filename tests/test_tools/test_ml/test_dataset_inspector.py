@@ -90,3 +90,45 @@ async def test_inspect_unsupported_format(tool, tmp_path):
     result = await tool.execute(DatasetInspectorInput(file_path=str(txt)), ctx)
     assert result.is_error
     assert "unsupported" in result.error.lower()
+
+
+# --------------------------------------------------------------------------- #
+# B1.5 - ToolErrorType taxonomy
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.asyncio
+async def test_missing_file_sets_file_not_found(tool, tmp_path):
+    """Non-existent file tags as FILE_NOT_FOUND."""
+    from norn.tools.base import ToolErrorType
+
+    ctx = ToolContext(cwd=str(tmp_path))
+    result = await tool.execute(DatasetInspectorInput(file_path=str(tmp_path / "ghost.csv")), ctx)
+    assert result.is_error is True
+    assert result.error_type == ToolErrorType.FILE_NOT_FOUND
+
+
+@pytest.mark.asyncio
+async def test_unsupported_format_sets_invalid_argument(tool, tmp_path):
+    """Unsupported extension tags as INVALID_ARGUMENT."""
+    from norn.tools.base import ToolErrorType
+
+    txt = tmp_path / "data.txt"
+    txt.write_text("nope")
+    ctx = ToolContext(cwd=str(tmp_path))
+    result = await tool.execute(DatasetInspectorInput(file_path=str(txt)), ctx)
+    assert result.is_error is True
+    assert result.error_type == ToolErrorType.INVALID_ARGUMENT
+
+
+@pytest.mark.asyncio
+async def test_corrupt_csv_sets_parse_error(tool, tmp_path):
+    """Unreadable / corrupted file tags as PARSE_ERROR."""
+    from norn.tools.base import ToolErrorType
+
+    bad = tmp_path / "bad.parquet"
+    bad.write_bytes(b"not a parquet file")
+    ctx = ToolContext(cwd=str(tmp_path))
+    result = await tool.execute(DatasetInspectorInput(file_path=str(bad)), ctx)
+    assert result.is_error is True
+    assert result.error_type == ToolErrorType.PARSE_ERROR

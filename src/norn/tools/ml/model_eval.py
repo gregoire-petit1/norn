@@ -6,7 +6,7 @@ from pathlib import Path
 
 from pydantic import BaseModel
 
-from norn.tools.base import RiskLevel, ToolContext, ToolResult
+from norn.tools.base import RiskLevel, ToolContext, ToolErrorType, ToolResult
 
 
 class ModelEvalInput(BaseModel):
@@ -39,13 +39,17 @@ class ModelEvalTool:
         try:
             import polars as pl
         except ImportError:
-            return ToolResult(error="polars is required but not installed (`pip install polars`).")
+            return ToolResult(
+                error="polars is required but not installed (`pip install polars`).",
+                error_type=ToolErrorType.NOT_SUPPORTED,
+            )
 
         try:
             import sklearn.metrics  # noqa: F401
         except ImportError:
             return ToolResult(
-                error="scikit-learn is required but not installed (`pip install scikit-learn`)."
+                error="scikit-learn is required but not installed (`pip install scikit-learn`).",
+                error_type=ToolErrorType.NOT_SUPPORTED,
             )
 
         # --- resolve & validate file ---
@@ -54,22 +58,30 @@ class ModelEvalTool:
             path = Path(ctx.cwd) / path
 
         if not path.exists():
-            return ToolResult(error=f"File not found: {path}")
+            return ToolResult(
+                error=f"File not found: {path}",
+                error_type=ToolErrorType.FILE_NOT_FOUND,
+            )
 
         # --- read CSV ---
         try:
             df = pl.read_csv(path)
         except Exception as e:
-            return ToolResult(error=f"Failed to read CSV: {e}")
+            return ToolResult(
+                error=f"Failed to read CSV: {e}",
+                error_type=ToolErrorType.PARSE_ERROR,
+            )
 
         # --- validate columns ---
         if input.y_true_col not in df.columns:
             return ToolResult(
-                error=f"Column '{input.y_true_col}' not found. Available columns: {df.columns}"
+                error=f"Column '{input.y_true_col}' not found. Available columns: {df.columns}",
+                error_type=ToolErrorType.INVALID_ARGUMENT,
             )
         if input.y_pred_col not in df.columns:
             return ToolResult(
-                error=f"Column '{input.y_pred_col}' not found. Available columns: {df.columns}"
+                error=f"Column '{input.y_pred_col}' not found. Available columns: {df.columns}",
+                error_type=ToolErrorType.INVALID_ARGUMENT,
             )
 
         y_true = df[input.y_true_col].to_list()

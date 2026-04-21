@@ -7,7 +7,7 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from norn.tools.base import RiskLevel, ToolContext, ToolResult
+from norn.tools.base import RiskLevel, ToolContext, ToolErrorType, ToolResult
 
 
 class TensorInspectorInput(BaseModel):
@@ -33,19 +33,28 @@ class TensorInspectorTool:
         try:
             import torch
         except ImportError:
-            return ToolResult(error="PyTorch is not installed. Install it with: pip install torch")
+            return ToolResult(
+                error="PyTorch is not installed. Install it with: pip install torch",
+                error_type=ToolErrorType.NOT_SUPPORTED,
+            )
 
         path = Path(input.file_path)
         if not path.is_absolute():
             path = Path(ctx.cwd) / path
 
         if not path.exists():
-            return ToolResult(error=f"File not found: {path}")
+            return ToolResult(
+                error=f"File not found: {path}",
+                error_type=ToolErrorType.FILE_NOT_FOUND,
+            )
 
         try:
             data = torch.load(str(path), map_location="cpu", weights_only=False)
         except Exception as e:
-            return ToolResult(error=f"Failed to load file: {e}")
+            return ToolResult(
+                error=f"Failed to load file: {e}",
+                error_type=ToolErrorType.PARSE_ERROR,
+            )
 
         file_size = path.stat().st_size
 

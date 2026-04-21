@@ -116,3 +116,34 @@ async def test_card_relative_path(tool, tmp_path):
     assert (tmp_path / "relative_card.md").exists()
     content = (tmp_path / "relative_card.md").read_text(encoding="utf-8")
     assert "RelNet" in content
+
+
+# --------------------------------------------------------------------------- #
+# B1.5 - ToolErrorType taxonomy
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.asyncio
+async def test_write_failure_sets_execution_error(tmp_path, monkeypatch):
+    """Write failure tags as EXECUTION_ERROR."""
+    from norn.tools.base import ToolContext, ToolErrorType
+    from norn.tools.ml.model_card import ModelCardInput, ModelCardTool
+
+    def boom(self, *args, **kwargs):
+        raise OSError("disk full")
+
+    monkeypatch.setattr("pathlib.Path.write_text", boom)
+
+    tool = ModelCardTool()
+    ctx = ToolContext(cwd=str(tmp_path))
+    result = await tool.execute(
+        ModelCardInput(
+            output_path="card.md",
+            model_name="X",
+            model_type="cls",
+            description="d",
+        ),
+        ctx,
+    )
+    assert result.is_error is True
+    assert result.error_type == ToolErrorType.EXECUTION_ERROR

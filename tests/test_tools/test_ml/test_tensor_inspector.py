@@ -81,3 +81,36 @@ async def test_inspect_dict_checkpoint(tool, tmp_path):
     assert result.output is not None
     assert not result.is_error
     assert "model_state_dict" in result.output
+
+
+# --------------------------------------------------------------------------- #
+# B1.5 - ToolErrorType taxonomy
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.asyncio
+async def test_missing_file_sets_file_not_found(tmp_path):
+    """Non-existent file tags as FILE_NOT_FOUND."""
+    from norn.tools.base import ToolContext, ToolErrorType
+    from norn.tools.ml.tensor_inspector import TensorInspectorInput, TensorInspectorTool
+
+    tool = TensorInspectorTool()
+    ctx = ToolContext(cwd=str(tmp_path))
+    result = await tool.execute(TensorInspectorInput(file_path=str(tmp_path / "ghost.pt")), ctx)
+    assert result.is_error is True
+    assert result.error_type == ToolErrorType.FILE_NOT_FOUND
+
+
+@pytest.mark.asyncio
+async def test_corrupt_file_sets_parse_error(tmp_path):
+    """Unloadable file tags as PARSE_ERROR."""
+    from norn.tools.base import ToolContext, ToolErrorType
+    from norn.tools.ml.tensor_inspector import TensorInspectorInput, TensorInspectorTool
+
+    bad = tmp_path / "bad.pt"
+    bad.write_bytes(b"not a torch file")
+    tool = TensorInspectorTool()
+    ctx = ToolContext(cwd=str(tmp_path))
+    result = await tool.execute(TensorInspectorInput(file_path=str(bad)), ctx)
+    assert result.is_error is True
+    assert result.error_type == ToolErrorType.PARSE_ERROR

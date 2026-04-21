@@ -6,7 +6,7 @@ from pathlib import Path
 
 from pydantic import BaseModel
 
-from norn.tools.base import RiskLevel, ToolContext, ToolResult
+from norn.tools.base import RiskLevel, ToolContext, ToolErrorType, ToolResult
 
 _SUPPORTED_EXTENSIONS = {".csv", ".parquet", ".pq"}
 
@@ -45,7 +45,8 @@ class DatasetInspectorTool:
         except ImportError:
             return ToolResult(
                 error="polars is required for dataset inspection. "
-                "Install it with: uv pip install polars"
+                "Install it with: uv pip install polars",
+                error_type=ToolErrorType.NOT_SUPPORTED,
             )
 
         path = Path(input.file_path)
@@ -53,19 +54,26 @@ class DatasetInspectorTool:
             path = Path(ctx.cwd) / path
 
         if not path.exists():
-            return ToolResult(error=f"File not found: {path}")
+            return ToolResult(
+                error=f"File not found: {path}",
+                error_type=ToolErrorType.FILE_NOT_FOUND,
+            )
 
         suffix = path.suffix.lower()
         if suffix not in _SUPPORTED_EXTENSIONS:
             return ToolResult(
                 error=f"Unsupported format '{suffix}'. "
-                f"Supported: {', '.join(sorted(_SUPPORTED_EXTENSIONS))}"
+                f"Supported: {', '.join(sorted(_SUPPORTED_EXTENSIONS))}",
+                error_type=ToolErrorType.INVALID_ARGUMENT,
             )
 
         try:
             df = pl.read_csv(path) if suffix == ".csv" else pl.read_parquet(path)
         except Exception as e:
-            return ToolResult(error=f"Failed to read {path.name}: {e}")
+            return ToolResult(
+                error=f"Failed to read {path.name}: {e}",
+                error_type=ToolErrorType.PARSE_ERROR,
+            )
 
         file_size = path.stat().st_size
         rows, cols = df.shape
