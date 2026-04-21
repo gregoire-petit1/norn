@@ -1,7 +1,6 @@
 """Tests for MCP CLI integration."""
 
 from norn.core.config import FlagsConfig, NornConfig
-from norn.mcp.models import MCPConfig
 
 
 def test_flags_config_has_mcp_field():

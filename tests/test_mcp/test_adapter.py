@@ -38,15 +38,15 @@ def test_make_input_model_has_correct_schema():
         "properties": {"text": {"type": "string", "description": "Text to echo"}},
         "required": ["text"],
     }
-    Model = _make_input_model("echo", schema)
-    assert Model.model_json_schema() == schema
+    model_cls = _make_input_model("echo", schema)
+    assert model_cls.model_json_schema() == schema
 
 
 def test_make_input_model_accepts_extra_fields():
     """Dynamic model should accept arbitrary fields (for unknown MCP tool params)."""
     schema = {"type": "object", "properties": {"x": {"type": "integer"}}}
-    Model = _make_input_model("tool", schema)
-    instance = Model(x=1, y="extra")  # 'y' is extra, should be accepted
+    model_cls = _make_input_model("tool", schema)
+    instance = model_cls(x=1, y="extra")  # 'y' is extra, should be accepted
     assert instance.model_dump()["x"] == 1
 
 
@@ -87,8 +87,8 @@ async def test_adapter_execute_stdio(echo_server_config, tmp_path):
         input_schema=schema,
     )
     ctx = ToolContext(cwd=str(tmp_path))
-    InputModel = adapter.input_model
-    result = await adapter.execute(InputModel(text="hello mcp"), ctx)
+    input_model_cls = adapter.input_model
+    result = await adapter.execute(input_model_cls(text="hello mcp"), ctx)
     assert result.is_error is False
     assert "hello mcp" in result.output
 
@@ -109,6 +109,6 @@ async def test_adapter_execute_bad_server(tmp_path):
         input_schema=schema,
     )
     ctx = ToolContext(cwd=str(tmp_path))
-    InputModel = adapter.input_model
-    result = await adapter.execute(InputModel(), ctx)
+    input_model_cls = adapter.input_model
+    result = await adapter.execute(input_model_cls(), ctx)
     assert result.is_error is True

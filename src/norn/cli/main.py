@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated
 
@@ -214,10 +215,8 @@ def chat(model: ModelOption = None, verbose: VerboseOption = False) -> None:
     registry = _build_registry(flag_registry)
     # Load MCP adapters and inject into registry
     for adapter in _load_mcp_adapters(config, flag_registry):
-        try:
-            registry.register(adapter)
-        except ValueError:
-            pass  # Ignore duplicate tool names across servers
+        with contextlib.suppress(ValueError):
+            registry.register(adapter)  # Ignore duplicate tool names across servers
     checker = _build_permission_checker(config)
     memory_store = _build_memory_store(config)
     session_logger = SessionLogger(memory_store) if memory_store else None
@@ -281,10 +280,8 @@ def run(
     registry = _build_registry(flag_registry)
     # Load MCP adapters and inject into registry
     for adapter in _load_mcp_adapters(config, flag_registry):
-        try:
-            registry.register(adapter)
-        except ValueError:
-            pass  # Ignore duplicate tool names across servers
+        with contextlib.suppress(ValueError):
+            registry.register(adapter)  # Ignore duplicate tool names across servers
     checker = _build_permission_checker(config)
     memory_store = _build_memory_store(config)
     session_logger = SessionLogger(memory_store) if memory_store else None
@@ -361,10 +358,8 @@ def coordinate(
     registry = _build_registry(flag_registry)
     # Load MCP adapters and inject into registry
     for adapter in _load_mcp_adapters(config, flag_registry):
-        try:
-            registry.register(adapter)
-        except ValueError:
-            pass  # Ignore duplicate tool names across servers
+        with contextlib.suppress(ValueError):
+            registry.register(adapter)  # Ignore duplicate tool names across servers
 
     import tempfile
 
@@ -412,10 +407,8 @@ def tools(verbose: VerboseOption = False) -> None:
     registry = _build_registry(flag_registry)
     # Load MCP adapters and inject into registry
     for adapter in _load_mcp_adapters(config, flag_registry):
-        try:
-            registry.register(adapter)
-        except ValueError:
-            pass  # Ignore duplicate tool names across servers
+        with contextlib.suppress(ValueError):
+            registry.register(adapter)  # Ignore duplicate tool names across servers
     console.print("[bold]Available tools:[/bold]\n")
     for tool in registry.list_tools():
         risk_color = {"low": "green", "medium": "yellow", "high": "red"}[tool.risk_level.value]
