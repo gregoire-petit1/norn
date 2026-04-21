@@ -32,6 +32,15 @@ class DailyRotatingJsonlHandler(logging.Handler):
     Designed for low-volume observability events. For high-volume workloads,
     consider switching to an external log shipper. Opens the file lazily on
     first emit and re-opens when the UTC date changes.
+
+    Thread-safety: relies on ``logging.Handler.handle()`` acquiring ``self.lock``
+    around each ``emit()`` call. Do NOT call ``emit()`` directly from user code.
+
+    Multi-process: uses append mode so concurrent processes will not truncate
+    each other's data. However, POSIX only guarantees atomic appends up to
+    ``PIPE_BUF`` (typically 4096 bytes). Records larger than that may be
+    interleaved under concurrent writers. Norn is single-process today; revisit
+    if that assumption changes.
     """
 
     def __init__(self, dir_path: Path):
@@ -59,7 +68,10 @@ class DailyRotatingJsonlHandler(logging.Handler):
     def emit(self, record: logging.LogRecord) -> None:
         try:
             self._ensure_file()
-            assert self._fh is not None
+            if self._fh is None:
+                # _ensure_file should always set _fh; guard defensively rather than
+                # assert (which disappears under `python -O`).
+                raise RuntimeError("log file handle not initialized")
             msg = self.format(record)
             self._fh.write(msg + "\n")
             self._fh.flush()

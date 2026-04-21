@@ -101,9 +101,51 @@ def test_both_output_writes_to_file_and_console(capfd, tmp_path):
     new_session()
     get_logger("test").info("agent.run", phase="end")
 
-    assert _today_file(tmp_path).exists()
+    # Console branch: event name + field rendered on stderr specifically
     out = capfd.readouterr()
-    assert "agent.run" in (out.out + out.err)
+    assert "agent.run" in out.err
+    assert "phase" in out.err
+
+    # File branch: valid JSONL with expected fields
+    assert _today_file(tmp_path).exists()
+    events = _read_jsonl(_today_file(tmp_path))
+    assert events[0]["event"] == "agent.run"
+    assert events[0]["phase"] == "end"
+
+
+def test_file_sink_rotates_on_day_boundary(tmp_path, monkeypatch):
+    """When the UTC date changes mid-session, subsequent events go to a new file."""
+    from norn.observability import sinks
+
+    fake_now = [datetime(2026, 4, 21, 23, 59, 59, tzinfo=UTC)]
+
+    class _FakeDatetime:
+        @staticmethod
+        def now(tz=None):  # noqa: ARG004
+            return fake_now[0]
+
+    monkeypatch.setattr(sinks, "datetime", _FakeDatetime)
+
+    cfg = LoggingConfig(enabled=True, output="file", file_dir=str(tmp_path))
+    init_logging(cfg)
+    new_session()
+    log = get_logger("test")
+
+    log.info("before.midnight", marker="day1")
+
+    # Advance past UTC midnight
+    fake_now[0] = datetime(2026, 4, 22, 0, 0, 1, tzinfo=UTC)
+    log.info("after.midnight", marker="day2")
+
+    file_day1 = tmp_path / "2026-04-21.jsonl"
+    file_day2 = tmp_path / "2026-04-22.jsonl"
+    assert file_day1.exists(), "day1 file missing"
+    assert file_day2.exists(), "day2 file missing"
+
+    day1_events = _read_jsonl(file_day1)
+    day2_events = _read_jsonl(file_day2)
+    assert [e["event"] for e in day1_events] == ["before.midnight"]
+    assert [e["event"] for e in day2_events] == ["after.midnight"]
 
 
 def test_file_sink_json_valid(tmp_path):
