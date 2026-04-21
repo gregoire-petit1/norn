@@ -251,6 +251,52 @@ Other unaddressed items from this tracker:
 
 ---
 
+## Phase 9 v2 — Completed (2026-04-22)
+
+Scope delivered: E1 (CI), D3 (coverage gaps), B1.5 (ToolErrorType taxonomy across all tool families), G (prompt caching). All commits on `main`, no push.
+
+### Items closed
+
+| Item | Status | Commit(s) | Notes |
+|---|---|---|---|
+| E1 | ✅ | `115ebbc` + `5a4da3b` | Cleaned up the F401/N806/SIM105 ruff violations that would have failed `ruff check` in CI; added `.github/workflows/ci.yml` running `ruff check` + `pytest` on Ubuntu / Python 3.11 with `uv sync --all-extras`. Smoke test on every push & PR. |
+| D3.1 | ✅ | `33f0c9b` | E2E test for the denied destructive command path: STRICT mode + `bash` HIGH-risk tool → `permission.decision` event with `reason=destructive_denied`, `granted=false`. |
+| D3.2 | ✅ | `6b56d37` | E2E test for `agent.run` failure propagation: tool that raises → `agent.run(success=false, error_type, error_message, duration_ms)` end event, exception re-raised to caller. |
+| D3.3 | ✅ | `de00f31` (+ `6fbc5bf` SIM117 fixup) | E2E test for the multi-tool turn: single LLM response with 2 native tool_calls → 2 `tool.call` events both within one turn. |
+| D3.4 | ✅ | `e21ccb9` | `LiteLLMProvider.complete()` now guards against empty `messages=[]` with a deterministic `ValueError("messages cannot be empty")` before any network call. |
+| B1.5.0 | ✅ | `f02bc9b` | Introduced `ToolErrorType` StrEnum in `src/norn/tools/base.py`: `FILE_NOT_FOUND`, `PERMISSION_DENIED`, `INVALID_ARGUMENT`, `TIMEOUT`, `NETWORK_ERROR`, `HTTP_ERROR`, `PARSE_ERROR`, `NOT_SUPPORTED`, `EXECUTION_ERROR`, `RESOURCE_EXHAUSTED`. Mirrors `PermissionDecisionReason` from v1. |
+| B1.5.1 | ✅ | `08cf80d` | Applied taxonomy to `file_read` / `file_write` / `file_edit` (5 sites). |
+| B1.5.2 | ✅ | `001c7b6` | Applied to `bash` (3 sites: `INVALID_ARGUMENT`, `TIMEOUT`, `EXECUTION_ERROR`). |
+| B1.5.3 | ✅ | `9f46e74` | Applied to `grep` + `glob` (3 sites). |
+| B1.5.4 | ✅ | `1de5179` | Applied to `web_fetch` + `web_search` (6 sites: `NOT_SUPPORTED` for missing httpx, `HTTP_ERROR` for 4xx/5xx, `NETWORK_ERROR` catch-all). |
+| B1.5.5 | ✅ | `40c561e` | Applied to ML tools — `dataset_inspector`, `model_inspector`, `model_card`, `model_eval`, `tensor_inspector` (15 sites). |
+| G.1 | ✅ | `9740d63` | Pure helpers `_supports_prompt_cache(model)` (allowlist: `anthropic/`, `openrouter/anthropic/`, `openai/gpt-4o`, `openai/gpt-4.1`) and `_apply_cache_markers(messages, tools, enabled)` (tags system prompt + last tool schema with `cache_control: ephemeral`). Pure-function, no side effects. |
+| G.2 | ✅ | `a6b72bb` | Wired into `LiteLLMProvider.__init__(prompt_cache: bool = True)` (gates immediately on `_supports_prompt_cache(model)` so the hot path stays a single bool check) and `complete()` (applies markers + emits `cache_read_tokens` + `cache_creation_tokens` on the `llm.complete` observability event). |
+| G.3 | ✅ | `8526700` | Added `prompt_cache: bool = True` to `LLMConfig`, forwarded through `build_litellm_provider(..., prompt_cache=...)` and `cli/main.py:_build_provider`, documented in `configs/default.yaml` with a comment block explaining the behaviour. |
+
+### Bottom-line metrics
+
+- **Tests:** 507 (Phase 9 v1 close) → **560 passed** (+53 net: +5 D3, +1 B1.5.0, +5 B1.5.1, +3 B1.5.2, +5 B1.5.3, +6 B1.5.4, +13 B1.5.5, +11 G.1, +4 G.2, +2 G.3, with some absorbed into existing files)
+- **Ruff:** 38 → **29 errors** (-9 from E1 cleanup; baseline maintained throughout B1.5 and G)
+- **Commits:** 16 commits on `main` (`115ebbc..8526700`), no push
+- **CI:** `.github/workflows/ci.yml` exercises both `ruff check` and `pytest` on every push & PR (Ubuntu / Python 3.11)
+
+### Follow-ups
+
+The taxonomy work covers ~32 sites across all 5 tool families. The generic `"ToolExecutionError"` literal in `agent.py` still applies for tools that don't override `error_type`; this is now a per-tool deferral rather than a systemic gap.
+
+Items from the original tracker still unaddressed:
+- **C2** — `_provider_from_model` heuristic
+- **D4 + E2** — Windows portability
+- **F2** — `norn logs stats` (DuckDB-backed)
+- **F3** — `norn cost report`
+
+Phase 9 v2 design notes:
+- `docs/plans/2026-04-22-norn-phase9-v2-design.md`
+- `docs/plans/2026-04-22-norn-phase9-v2-implementation.md`
+
+---
+
 ## Notes
 
 - This tracker is a living document — add new items as they emerge during
