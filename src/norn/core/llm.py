@@ -104,6 +104,72 @@ def _provider_from_model(model: str) -> str:
     return "openai"
 
 
+# --------------------------------------------------------------------------- #
+# Prompt caching (Phase 9 v2 — Workstream G)
+# --------------------------------------------------------------------------- #
+
+_CACHE_ELIGIBLE_PREFIXES = (
+    "anthropic/",
+    "openrouter/anthropic/",
+    "openai/gpt-4o",
+    "openai/gpt-4.1",
+)
+
+
+def _supports_prompt_cache(model: str) -> bool:
+    """Return True if ``model`` is known to honour ``cache_control`` markers.
+
+    Conservative gate: better to skip caching on a supporting model than to
+    send unrecognised fields to a fragile provider. Anthropic uses explicit
+    ``cache_control: {"type": "ephemeral"}`` markers; OpenAI's automatic
+    caching ignores them harmlessly, so they're safe to leave on for the
+    listed OpenAI families.
+    """
+    return model.startswith(_CACHE_ELIGIBLE_PREFIXES)
+
+
+def _apply_cache_markers(
+    messages: list[dict],
+    tools: list[dict] | None,
+    enabled: bool,
+) -> tuple[list[dict], list[dict] | None]:
+    """Tag system prompt + last tool schema with ``cache_control: ephemeral``.
+
+    No-op when ``enabled`` is False. Caller must also gate on
+    :func:`_supports_prompt_cache` to avoid sending markers to providers
+    that don't understand them.
+
+    Returns a (messages, tools) tuple with the marked copies; the originals
+    are not mutated.
+    """
+    if not enabled:
+        return messages, tools
+
+    new_messages = list(messages)
+    if new_messages and new_messages[0].get("role") == "system":
+        sys_msg = dict(new_messages[0])
+        content = sys_msg.get("content", "")
+        if isinstance(content, str):
+            sys_msg["content"] = [
+                {
+                    "type": "text",
+                    "text": content,
+                    "cache_control": {"type": "ephemeral"},
+                }
+            ]
+        new_messages[0] = sys_msg
+
+    new_tools = tools
+    if tools:
+        new_tools = list(tools)
+        new_tools[-1] = {
+            **new_tools[-1],
+            "cache_control": {"type": "ephemeral"},
+        }
+
+    return new_messages, new_tools
+
+
 class LiteLLMProvider:
     """LLM provider using litellm for universal model support."""
 
