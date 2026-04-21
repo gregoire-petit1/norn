@@ -6,7 +6,7 @@ from pathlib import Path
 
 from pydantic import BaseModel
 
-from norn.tools.base import RiskLevel, ToolContext, ToolResult
+from norn.tools.base import RiskLevel, ToolContext, ToolErrorType, ToolResult
 
 
 class GlobInput(BaseModel):
@@ -30,7 +30,10 @@ class GlobTool:
             base = Path(ctx.cwd) / base
 
         if not base.exists():
-            return ToolResult(error=f"Directory not found: {base}")
+            return ToolResult(
+                error=f"Directory not found: {base}",
+                error_type=ToolErrorType.FILE_NOT_FOUND.value,
+            )
 
         matches = sorted(base.glob(input.pattern))
         if not matches:

@@ -26,3 +26,19 @@ async def test_glob_pattern(tool, tmp_path):
     assert "foo.py" in result.output
     assert "bar.py" in result.output
     assert "baz.txt" not in result.output
+
+
+# --------------------------------------------------------------------------- #
+# B1.5 - ToolErrorType taxonomy
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.asyncio
+async def test_glob_missing_directory_sets_file_not_found(tool, tmp_path):
+    """A non-existent base directory tags as FILE_NOT_FOUND."""
+    from norn.tools.base import ToolErrorType
+
+    ctx = ToolContext(cwd=str(tmp_path))
+    result = await tool.execute(GlobInput(pattern="*.py", path=str(tmp_path / "ghost")), ctx)
+    assert result.is_error is True
+    assert result.error_type == ToolErrorType.FILE_NOT_FOUND.value

@@ -7,7 +7,7 @@ from pathlib import Path
 
 from pydantic import BaseModel
 
-from norn.tools.base import RiskLevel, ToolContext, ToolResult
+from norn.tools.base import RiskLevel, ToolContext, ToolErrorType, ToolResult
 
 
 class GrepInput(BaseModel):
@@ -32,12 +32,18 @@ class GrepTool:
             base = Path(ctx.cwd) / base
 
         if not base.exists():
-            return ToolResult(error=f"Path not found: {base}")
+            return ToolResult(
+                error=f"Path not found: {base}",
+                error_type=ToolErrorType.FILE_NOT_FOUND.value,
+            )
 
         try:
             regex = re.compile(input.pattern)
         except re.error as e:
-            return ToolResult(error=f"Invalid regex: {e}")
+            return ToolResult(
+                error=f"Invalid regex: {e}",
+                error_type=ToolErrorType.INVALID_ARGUMENT.value,
+            )
 
         results: list[str] = []
         files = base.rglob(input.include or "*") if base.is_dir() else [base]
