@@ -176,6 +176,27 @@ async def test_permission_checker_emits_decision_on_grant(log_dir: Path) -> None
     assert ev["tool_name"] == "file_read"
     assert ev["granted"] is True
     assert ev["mode"] == "yolo"
+    assert ev["reason"] == "yolo"
+
+
+@pytest.mark.asyncio
+async def test_permission_decision_event_includes_reason_for_auto_approved(
+    log_dir: Path,
+) -> None:
+    """Auto mode + low risk emits ``reason='auto_approved'`` in the JSON log (A2)."""
+    checker = PermissionChecker(mode=PermissionMode.AUTO, classifier=RiskClassifier())
+    req = PermissionRequest(tool_name="file_read", risk_level="low", arguments={"path": "/tmp/x"})
+
+    decision = await checker.check(req)
+    assert decision.approved is True
+
+    events = _events(_today_file(log_dir))
+    decisions = [e for e in events if e.get("event") == "permission.decision"]
+    assert len(decisions) == 1
+    ev = decisions[0]
+    assert ev["granted"] is True
+    assert ev["mode"] == "auto"
+    assert ev["reason"] == "auto_approved"
 
 
 @pytest.mark.asyncio

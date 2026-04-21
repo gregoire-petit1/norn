@@ -11,7 +11,11 @@ if TYPE_CHECKING:
     from norn.permissions.classifier import RiskClassifier
 
 from norn.observability import EventName, get_logger
-from norn.permissions.models import PermissionDecision, PermissionRequest
+from norn.permissions.models import (
+    PermissionDecision,
+    PermissionDecisionReason,
+    PermissionRequest,
+)
 from norn.tools.base import RiskLevel
 
 # Type alias for the user-prompt callback
@@ -76,14 +80,14 @@ class PermissionChecker:
         mode = self.mode.value
 
         if mode == "yolo":
-            return PermissionDecision(approved=True, reason="yolo")
+            return PermissionDecision(approved=True, reason=PermissionDecisionReason.YOLO)
 
         if mode == "strict":
             # Destructive = always denied, no prompt
             if is_destructive:
                 return PermissionDecision(
                     approved=False,
-                    reason="Destructive command denied in strict mode",
+                    reason=PermissionDecisionReason.DESTRUCTIVE_DENIED,
                 )
             # Everything else needs prompt
             return await self._prompt_or_deny(request, effective_risk)
@@ -91,13 +95,15 @@ class PermissionChecker:
         if mode == "auto":
             # LOW + MEDIUM auto-approved, HIGH needs prompt
             if _RISK_ORDER.get(effective_risk, 2) <= _RISK_ORDER["medium"]:
-                return PermissionDecision(approved=True, reason="auto_approved_low_medium")
+                return PermissionDecision(
+                    approved=True, reason=PermissionDecisionReason.AUTO_APPROVED
+                )
             return await self._prompt_or_deny(request, effective_risk)
 
         # interactive (default)
         # LOW auto-approved, MEDIUM + HIGH need prompt
         if _RISK_ORDER.get(effective_risk, 2) <= _RISK_ORDER["low"]:
-            return PermissionDecision(approved=True, reason="auto_approved_low")
+            return PermissionDecision(approved=True, reason=PermissionDecisionReason.AUTO_APPROVED)
         return await self._prompt_or_deny(request, effective_risk)
 
     async def _prompt_or_deny(
@@ -109,7 +115,7 @@ class PermissionChecker:
         if self.prompt_fn is None:
             return PermissionDecision(
                 approved=False,
-                reason=f"Tool '{request.tool_name}' (risk: {effective_risk}) requires approval",
+                reason=PermissionDecisionReason.PROMPT_REQUIRED_NO_HANDLER,
                 escalated_risk=effective_risk if effective_risk != request.risk_level else None,
             )
 
@@ -120,5 +126,9 @@ class PermissionChecker:
         approved = await self.prompt_fn(request, description)
         return PermissionDecision(
             approved=approved,
-            reason="user_approved" if approved else "user_denied",
+            reason=(
+                PermissionDecisionReason.USER_APPROVED
+                if approved
+                else PermissionDecisionReason.USER_DENIED
+            ),
         )

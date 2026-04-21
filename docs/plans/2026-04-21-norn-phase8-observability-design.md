@@ -184,6 +184,24 @@ Failure events emit the harmonised `error_type` / `error_message` pair
 }
 ```
 
+##### Reason taxonomy
+
+The `reason` field uses a closed taxonomy (canonical source: `PermissionDecisionReason`
+StrEnum in `src/norn/permissions/models.py`). Updated in Phase 9 follow-up A2 to be
+non-null for every decision:
+
+| Value | When emitted |
+|---|---|
+| `yolo` | yolo mode auto-approval |
+| `auto_approved` | auto/interactive mode below the prompt threshold |
+| `user_approved` | user approved at the interactive prompt |
+| `user_denied` | user rejected at the interactive prompt |
+| `destructive_denied` | strict mode rejected a destructive command |
+| `prompt_required_no_handler` | prompt would be required but no `prompt_fn` was wired |
+
+The structured event also carries `mode` and `risk_level`, which together with `reason`
+form the (mode, risk, decision) triple useful for downstream filtering.
+
 #### `routing.decision`
 ```json
 {

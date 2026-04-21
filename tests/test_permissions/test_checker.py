@@ -7,7 +7,7 @@ import pytest
 from norn.core.config import PermissionMode
 from norn.permissions.checker import PermissionChecker
 from norn.permissions.classifier import RiskClassifier
-from norn.permissions.models import PermissionRequest
+from norn.permissions.models import PermissionDecisionReason, PermissionRequest
 
 
 @pytest.fixture
@@ -72,7 +72,7 @@ class TestAutoMode:
         req = PermissionRequest(tool_name="bash", risk_level="high", arguments={"command": "ls"})
         decision = await checker.check(req)
         assert decision.approved is False
-        assert "requires approval" in decision.reason.lower()
+        assert decision.reason == PermissionDecisionReason.PROMPT_REQUIRED_NO_HANDLER
 
     @pytest.mark.asyncio
     async def test_high_risk_with_prompt_approved(self, classifier):
@@ -120,7 +120,7 @@ class TestInteractiveMode:
         )
         decision = await checker.check(req)
         assert decision.approved is False
-        assert "requires approval" in decision.reason.lower()
+        assert decision.reason == PermissionDecisionReason.PROMPT_REQUIRED_NO_HANDLER
 
     @pytest.mark.asyncio
     async def test_medium_risk_with_prompt_approved(self, classifier):
@@ -159,7 +159,7 @@ class TestStrictMode:
         )
         decision = await checker.check(req)
         assert decision.approved is False
-        assert "denied" in decision.reason.lower() or "destructive" in decision.reason.lower()
+        assert decision.reason == PermissionDecisionReason.DESTRUCTIVE_DENIED
 
     @pytest.mark.asyncio
     async def test_destructive_denied_even_with_prompt(self, classifier):
@@ -190,23 +190,23 @@ class TestDecisionReasonSynthesis:
     """Auto-approve / user-prompted paths must populate ``reason`` (A2)."""
 
     @pytest.mark.asyncio
-    async def test_yolo_mode_decision_reason_is_yolo(self, classifier):
+    async def test_yolo_reason(self, classifier):
         checker = PermissionChecker(mode=PermissionMode.YOLO, classifier=classifier)
         req = PermissionRequest(tool_name="bash", risk_level="high", arguments={"command": "ls"})
         decision = await checker.check(req)
         assert decision.approved is True
-        assert decision.reason == "yolo"
+        assert decision.reason == PermissionDecisionReason.YOLO
 
     @pytest.mark.asyncio
-    async def test_auto_mode_low_risk_reason_is_auto_approved_low_medium(self, classifier):
+    async def test_auto_low_risk_reason(self, classifier):
         checker = PermissionChecker(mode=PermissionMode.AUTO, classifier=classifier)
         req = PermissionRequest(tool_name="file_read", risk_level="low", arguments={"path": "x"})
         decision = await checker.check(req)
         assert decision.approved is True
-        assert decision.reason == "auto_approved_low_medium"
+        assert decision.reason == PermissionDecisionReason.AUTO_APPROVED
 
     @pytest.mark.asyncio
-    async def test_auto_mode_medium_risk_reason_is_auto_approved_low_medium(self, classifier):
+    async def test_auto_medium_risk_reason(self, classifier):
         checker = PermissionChecker(mode=PermissionMode.AUTO, classifier=classifier)
         req = PermissionRequest(
             tool_name="file_write",
@@ -215,18 +215,18 @@ class TestDecisionReasonSynthesis:
         )
         decision = await checker.check(req)
         assert decision.approved is True
-        assert decision.reason == "auto_approved_low_medium"
+        assert decision.reason == PermissionDecisionReason.AUTO_APPROVED
 
     @pytest.mark.asyncio
-    async def test_interactive_mode_low_risk_reason_is_auto_approved_low(self, classifier):
+    async def test_interactive_low_risk_reason(self, classifier):
         checker = PermissionChecker(mode=PermissionMode.INTERACTIVE, classifier=classifier)
         req = PermissionRequest(tool_name="file_read", risk_level="low", arguments={"path": "x"})
         decision = await checker.check(req)
         assert decision.approved is True
-        assert decision.reason == "auto_approved_low"
+        assert decision.reason == PermissionDecisionReason.AUTO_APPROVED
 
     @pytest.mark.asyncio
-    async def test_prompted_approval_reason_is_user_approved(self, classifier):
+    async def test_prompted_approval_reason(self, classifier):
         prompt_fn = AsyncMock(return_value=True)
         checker = PermissionChecker(
             mode=PermissionMode.INTERACTIVE, classifier=classifier, prompt_fn=prompt_fn
@@ -238,10 +238,10 @@ class TestDecisionReasonSynthesis:
         )
         decision = await checker.check(req)
         assert decision.approved is True
-        assert decision.reason == "user_approved"
+        assert decision.reason == PermissionDecisionReason.USER_APPROVED
 
     @pytest.mark.asyncio
-    async def test_prompted_denial_reason_is_user_denied(self, classifier):
+    async def test_prompted_denial_reason(self, classifier):
         prompt_fn = AsyncMock(return_value=False)
         checker = PermissionChecker(
             mode=PermissionMode.INTERACTIVE, classifier=classifier, prompt_fn=prompt_fn
@@ -253,4 +253,4 @@ class TestDecisionReasonSynthesis:
         )
         decision = await checker.check(req)
         assert decision.approved is False
-        assert decision.reason == "user_denied"
+        assert decision.reason == PermissionDecisionReason.USER_DENIED
