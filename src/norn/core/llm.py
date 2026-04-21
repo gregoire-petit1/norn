@@ -179,6 +179,7 @@ class LiteLLMProvider:
         api_base: str | None = None,
         *,
         completion_fn: Callable[..., Awaitable[Any]] | None = None,
+        prompt_cache: bool = True,
     ) -> None:
         self.model = model
         self.api_base = api_base
@@ -188,6 +189,9 @@ class LiteLLMProvider:
         # Tests wanting per-instance isolation (e.g. concurrent tasks) should
         # pass ``completion_fn=`` explicitly.
         self._completion_fn = completion_fn
+        # Gate at construction: drop the flag immediately if the model is
+        # not on the allowlist, so the hot path stays a single bool check.
+        self._prompt_cache = prompt_cache and _supports_prompt_cache(model)
         # Suppress litellm logging noise
         litellm.suppress_debug_info = True
 
@@ -216,6 +220,19 @@ class LiteLLMProvider:
         tool_schemas = build_tool_schemas(tools or [])
         if tool_schemas:
             kwargs["tools"] = tool_schemas
+
+        # Apply prompt-cache markers if the model is eligible. Operates on
+        # the dict copies in ``kwargs`` so the original Message objects stay
+        # untouched and observable.
+        if self._prompt_cache:
+            marked_messages, marked_tools = _apply_cache_markers(
+                kwargs["messages"],
+                kwargs.get("tools"),
+                enabled=True,
+            )
+            kwargs["messages"] = marked_messages
+            if marked_tools is not None:
+                kwargs["tools"] = marked_tools
 
         async with measure_and_log(
             _log,
@@ -249,6 +266,12 @@ class LiteLLMProvider:
             event["prompt_tokens"] = token_usage.prompt_tokens
             event["completion_tokens"] = token_usage.completion_tokens
             event["total_tokens"] = token_usage.total_tokens
+            event["cache_read_tokens"] = (
+                (getattr(usage, "cache_read_input_tokens", 0) or 0) if usage is not None else 0
+            )
+            event["cache_creation_tokens"] = (
+                (getattr(usage, "cache_creation_input_tokens", 0) or 0) if usage is not None else 0
+            )
             event["finish_reason"] = (
                 getattr(choice, "finish_reason", None) if choice is not None else None
             )
