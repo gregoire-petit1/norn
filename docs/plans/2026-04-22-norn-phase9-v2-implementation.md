@@ -674,6 +674,366 @@ git commit -m "feat(tools): apply ToolErrorType to ML tools (B1.5.5)"
 
 ---
 
+## Workstream G — Prompt caching (litellm `cache_control`)
+
+### Task G.1: Helper functions + unit tests
+
+**Files:**
+- Modify: `src/norn/core/llm.py`
+- Modify (or create): `tests/test_core/test_llm_caching.py`
+
+**Step 1: Write failing tests**
+
+```python
+from norn.core.llm import _apply_cache_markers, _supports_prompt_cache
+
+
+def test_supports_prompt_cache_anthropic_direct():
+    assert _supports_prompt_cache("anthropic/claude-sonnet-4")
+
+
+def test_supports_prompt_cache_anthropic_via_openrouter():
+    assert _supports_prompt_cache("openrouter/anthropic/claude-sonnet-4")
+
+
+def test_supports_prompt_cache_openai_4o():
+    assert _supports_prompt_cache("openai/gpt-4o")
+
+
+def test_supports_prompt_cache_unsupported():
+    assert not _supports_prompt_cache("ollama/qwen2.5-coder:14b")
+    assert not _supports_prompt_cache("openrouter/stepfun/step-3.5-flash:free")
+
+
+def test_apply_cache_markers_disabled_is_noop():
+    msgs = [{"role": "system", "content": "you are an agent"}]
+    tools = [{"type": "function", "function": {"name": "bash"}}]
+    out_msgs, out_tools = _apply_cache_markers(msgs, tools, enabled=False)
+    assert out_msgs == msgs
+    assert out_tools == tools
+
+
+def test_apply_cache_markers_tags_system_prompt():
+    msgs = [
+        {"role": "system", "content": "you are an agent"},
+        {"role": "user", "content": "hi"},
+    ]
+    out_msgs, _ = _apply_cache_markers(msgs, None, enabled=True)
+    assert isinstance(out_msgs[0]["content"], list)
+    assert out_msgs[0]["content"][0]["cache_control"] == {"type": "ephemeral"}
+    assert out_msgs[0]["content"][0]["text"] == "you are an agent"
+    # User message untouched
+    assert out_msgs[1] == msgs[1]
+
+
+def test_apply_cache_markers_tags_last_tool():
+    tools = [
+        {"type": "function", "function": {"name": "bash"}},
+        {"type": "function", "function": {"name": "file_read"}},
+    ]
+    _, out_tools = _apply_cache_markers([], tools, enabled=True)
+    assert out_tools[0] == tools[0]  # untouched
+    assert out_tools[1]["cache_control"] == {"type": "ephemeral"}
+
+
+def test_apply_cache_markers_no_system_no_crash():
+    msgs = [{"role": "user", "content": "hi"}]
+    out_msgs, _ = _apply_cache_markers(msgs, None, enabled=True)
+    assert out_msgs == msgs
+
+
+def test_apply_cache_markers_empty_messages():
+    out_msgs, out_tools = _apply_cache_markers([], None, enabled=True)
+    assert out_msgs == []
+    assert out_tools is None
+```
+
+**Step 2: Run tests to verify they fail**
+
+Run: `uv run pytest tests/test_core/test_llm_caching.py -v`
+
+Expected: FAIL — symbols not defined.
+
+**Step 3: Implement the helpers in `src/norn/core/llm.py`**
+
+```python
+_CACHE_ELIGIBLE_PREFIXES = (
+    "anthropic/",
+    "openrouter/anthropic/",
+    "openai/gpt-4o",
+    "openai/gpt-4.1",
+)
+
+
+def _supports_prompt_cache(model: str) -> bool:
+    """Return True if the model is known to support prompt caching markers.
+
+    Conservative gate: better to skip caching on a supporting model than
+    to send unrecognised fields to a fragile provider.
+    """
+    return model.startswith(_CACHE_ELIGIBLE_PREFIXES)
+
+
+def _apply_cache_markers(
+    messages: list[dict],
+    tools: list[dict] | None,
+    enabled: bool,
+) -> tuple[list[dict], list[dict] | None]:
+    """Tag system prompt + last tool schema with cache_control: ephemeral.
+
+    No-op when `enabled` is False. Caller must also gate on
+    `_supports_prompt_cache(model)` to avoid sending markers to providers
+    that don't understand them.
+    """
+    if not enabled:
+        return messages, tools
+
+    new_messages = list(messages)
+    if new_messages and new_messages[0].get("role") == "system":
+        sys_msg = dict(new_messages[0])
+        content = sys_msg.get("content", "")
+        if isinstance(content, str):
+            sys_msg["content"] = [
+                {
+                    "type": "text",
+                    "text": content,
+                    "cache_control": {"type": "ephemeral"},
+                }
+            ]
+        new_messages[0] = sys_msg
+
+    new_tools = tools
+    if tools:
+        new_tools = list(tools)
+        new_tools[-1] = {
+            **new_tools[-1],
+            "cache_control": {"type": "ephemeral"},
+        }
+
+    return new_messages, new_tools
+```
+
+**Step 4: Run tests, full suite**
+
+Run: `uv run pytest 2>&1 | tail -1`
+
+Expected: `~553 passed` (507 baseline + previous v2 tasks + 8 new cache helper tests).
+
+**Step 5: Commit**
+
+```bash
+git add src/norn/core/llm.py tests/test_core/test_llm_caching.py
+git commit -m "feat(llm): add prompt-cache marker helpers (G.1)"
+```
+
+---
+
+### Task G.2: Wire helpers into `LiteLLMProvider.complete` + observability
+
+**Files:**
+- Modify: `src/norn/core/llm.py`
+- Modify: `tests/test_observability/test_e2e.py` or `tests/test_core/test_llm_caching.py`
+
+**Step 1: Decide on the config plumbing approach**
+
+Two options:
+- (a) Add `prompt_cache: bool = True` field on `LiteLLMProvider.__init__`,
+  default True
+- (b) Read from a module-level flag
+
+Choose **(a)** for testability and explicitness.
+
+**Step 2: Write the failing integration test**
+
+```python
+from unittest.mock import AsyncMock, MagicMock
+
+async def test_litellm_provider_emits_cache_observability_fields():
+    """When the provider returns cache usage stats, llm.complete event
+    carries cache_read_tokens and cache_creation_tokens."""
+    fake_response = MagicMock()
+    fake_response.choices = [MagicMock()]
+    fake_response.choices[0].message.content = "ok"
+    fake_response.choices[0].message.tool_calls = None
+    fake_response.choices[0].finish_reason = "stop"
+    fake_response.usage = MagicMock(
+        prompt_tokens=1000,
+        completion_tokens=10,
+        total_tokens=1010,
+        cache_read_input_tokens=800,
+        cache_creation_input_tokens=200,
+    )
+    fake_completion = AsyncMock(return_value=fake_response)
+
+    provider = LiteLLMProvider(
+        model="anthropic/claude-sonnet-4",
+        prompt_cache=True,
+        completion_fn=fake_completion,
+    )
+
+    # Capture log via existing test harness or an observability fixture
+    with capture_log_events() as events:
+        await provider.complete(
+            messages=[Message(role=Role.SYSTEM, content="you are an agent"),
+                      Message(role=Role.USER, content="hi")],
+            tools=None,
+        )
+
+    llm_events = [e for e in events if e["event"] == "llm.complete"]
+    assert len(llm_events) == 1
+    assert llm_events[0]["cache_read_tokens"] == 800
+    assert llm_events[0]["cache_creation_tokens"] == 200
+
+
+async def test_litellm_provider_passes_cache_markers_to_litellm():
+    """When prompt_cache=True and model is eligible, litellm receives
+    messages with cache_control markers."""
+    fake_response = _minimal_fake_response()
+    fake_completion = AsyncMock(return_value=fake_response)
+    provider = LiteLLMProvider(
+        model="anthropic/claude-sonnet-4",
+        prompt_cache=True,
+        completion_fn=fake_completion,
+    )
+    await provider.complete(
+        messages=[Message(role=Role.SYSTEM, content="hello"),
+                  Message(role=Role.USER, content="hi")],
+        tools=None,
+    )
+    call_kwargs = fake_completion.await_args.kwargs
+    sys_content = call_kwargs["messages"][0]["content"]
+    assert isinstance(sys_content, list)
+    assert sys_content[0]["cache_control"] == {"type": "ephemeral"}
+
+
+async def test_litellm_provider_skips_markers_on_unsupported_model():
+    """When model is not eligible, no cache_control markers are sent."""
+    fake_completion = AsyncMock(return_value=_minimal_fake_response())
+    provider = LiteLLMProvider(
+        model="ollama/qwen2.5-coder:14b",
+        prompt_cache=True,
+        completion_fn=fake_completion,
+    )
+    await provider.complete(
+        messages=[Message(role=Role.SYSTEM, content="hello"),
+                  Message(role=Role.USER, content="hi")],
+        tools=None,
+    )
+    call_kwargs = fake_completion.await_args.kwargs
+    sys_content = call_kwargs["messages"][0]["content"]
+    assert sys_content == "hello"  # untouched string
+```
+
+(Adapt `_minimal_fake_response` and `capture_log_events` helpers to the
+existing test infrastructure; reuse what `test_e2e.py` already exposes.)
+
+**Step 3: Run tests to verify they fail**
+
+Expected: FAIL.
+
+**Step 4: Implement the wiring in `LiteLLMProvider`**
+
+Update `__init__`:
+
+```python
+def __init__(
+    self,
+    model: str,
+    api_base: str | None = None,
+    *,
+    completion_fn: Callable[..., Awaitable[Any]] | None = None,
+    prompt_cache: bool = True,
+) -> None:
+    self.model = model
+    self.api_base = api_base
+    self._completion_fn = completion_fn
+    self._prompt_cache = prompt_cache and _supports_prompt_cache(model)
+    litellm.suppress_debug_info = True
+```
+
+Update `complete()` to:
+- call `_apply_cache_markers(_messages_to_dicts(messages), tool_schemas, self._prompt_cache)`
+- pass the marked messages and tools to `completion(**kwargs)`
+- after the call, extract `cache_read_input_tokens` and
+  `cache_creation_input_tokens` from `usage` and add them to the event:
+
+```python
+event["cache_read_tokens"] = (
+    getattr(usage, "cache_read_input_tokens", 0) or 0
+    if usage is not None else 0
+)
+event["cache_creation_tokens"] = (
+    getattr(usage, "cache_creation_input_tokens", 0) or 0
+    if usage is not None else 0
+)
+```
+
+**Step 5: Run tests, full suite**
+
+Expected: `~556 passed` (+3 integration tests).
+
+**Step 6: Commit**
+
+```bash
+git add src/norn/core/llm.py tests/test_core/test_llm_caching.py
+git commit -m "feat(llm): wire prompt cache markers into LiteLLMProvider + observability (G.2)"
+```
+
+---
+
+### Task G.3: Config knob + verify no regression
+
+**Files:**
+- Modify: `src/norn/core/config.py` (add `prompt_cache: bool = True` to LLM config block)
+- Modify: `src/norn/core/router.py` (forward `prompt_cache` to underlying providers if router uses LiteLLMProvider)
+- Modify: `configs/default.yaml` (document the knob)
+- Modify: `src/norn/cli/main.py` `_build_provider` to pass `prompt_cache=config.llm.prompt_cache`
+
+**Step 1: Inventory how `LiteLLMProvider` is constructed**
+
+Run: `rg "LiteLLMProvider\(" src/norn/ -n`
+
+Identify every call site. Likely: `cli/main.py` (`_build_provider`),
+`core/router.py` (`build_litellm_provider`).
+
+**Step 2: Write failing test for config plumbing**
+
+```python
+def test_config_default_prompt_cache_is_true():
+    config = NornConfig.load_default()
+    assert config.llm.prompt_cache is True
+
+
+def test_config_prompt_cache_can_be_disabled():
+    config = NornConfig.load_from_dict({
+        "llm": {
+            "provider": "anthropic",
+            "model": "anthropic/claude-sonnet-4",
+            "prompt_cache": False,
+        },
+    })
+    assert config.llm.prompt_cache is False
+```
+
+**Step 3: Run, fail, implement, pass.**
+
+Add `prompt_cache: bool = True` to the LLM config Pydantic model.
+Update `_build_provider` and `build_litellm_provider` to forward the flag.
+Document in `configs/default.yaml` with a comment block.
+
+**Step 4: Run full suite**
+
+Expected: `~558 passed`.
+
+**Step 5: Commit**
+
+```bash
+git add src/norn/core/config.py src/norn/core/router.py src/norn/cli/main.py configs/default.yaml tests/test_core/test_config.py
+git commit -m "feat(config): add llm.prompt_cache knob (G.3)"
+```
+
+---
+
 ## Final verification
 
 ### Task FINAL: Tracker update + full verification
@@ -685,7 +1045,7 @@ git commit -m "feat(tools): apply ToolErrorType to ML tools (B1.5.5)"
 
 Run: `uv run pytest 2>&1 | tail -1`
 
-Expected: ~545–555 passed.
+Expected: ~553–563 passed.
 
 **Step 2: Run ruff**
 
@@ -723,8 +1083,9 @@ Expected: ~10–12 commits since the design doc, working tree clean, no push.
 | E1 | E1.1, E1.2 | 2 |
 | D3 | D3.1 (research), D3.2, D3.3, D3.4, D3.5 | 4 |
 | B1.5 | B1.5.1, B1.5.2 (research), B1.5.3, B1.5.4, B1.5.5, B1.5.6, B1.5.7 | 6 |
+| G | G.1, G.2, G.3 | 3 |
 | FINAL | tracker update | 1 |
-| **Total** | **~14 tasks** | **~13 commits** |
+| **Total** | **~17 tasks** | **~16 commits** |
 
 ## Skills referenced
 

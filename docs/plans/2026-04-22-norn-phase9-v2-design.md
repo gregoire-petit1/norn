@@ -10,16 +10,20 @@
 ## 1. Goal
 
 Solidify the foundations laid by Phases 8 and 9 v1 before stacking more
-observability features. Three workstreams, executed linearly:
+observability features. Four workstreams, executed linearly:
 
 1. **E1** — Minimal CI on GitHub Actions (protective net first).
 2. **D3** — Four end-to-end coverage gaps (denied path, agent.run failure,
    multi-tool turn, empty messages).
 3. **B1.5** — `ToolErrorType` taxonomy + application to the ~30 per-tool
    `ToolResult(error=...)` sites.
+4. **G** — Prompt caching (litellm `cache_control`) on system prompt + tool
+   schemas to reduce input token cost on multi-turn agent loops.
 
 The ordering is deliberate: ship the CI net first so that every subsequent
-test addition and refactor is automatically validated.
+test addition and refactor is automatically validated. Workstream G runs
+last because it is a behavioural optimisation that benefits from the
+strengthened test suite.
 
 ## 2. Out of scope
 
@@ -31,9 +35,14 @@ Deferred to Phase 9 v3 or later:
 - F3 (`norn cost report`)
 - C2 (`_provider_from_model` heuristic)
 - D4 + E2 (Windows portability)
+- `obsidian_rag` tool (planned as Phase 10 dedicated workstream)
+- Internal benchmark / mini-eval (planned as Phase 11)
+- Watch mode (file-trigger Dream/Coordinator)
+- Repo map / tree-sitter integration (Aider-style)
+- Scratchpad concurrent bottleneck (note for when multi-session arrives)
 
 Rationale: each of these is a feature; Phase 9 v2 deliberately invests in
-non-feature quality work.
+non-feature quality work plus one targeted cost optimisation (G).
 
 ---
 
@@ -250,30 +259,186 @@ tools share an error path.
 
 ---
 
-## 6. Bottom-line targets
+## 6. Workstream G — Prompt caching (litellm `cache_control`)
+
+### 6.1 Motivation
+
+In a multi-turn agent loop, the system prompt and tool schemas are
+re-transmitted on every turn. For long sessions or large tool catalogs,
+this dominates the input token bill. Anthropic, OpenAI (automatic on
+gpt-4o family), and a few OpenRouter models support **prompt caching**: a
+provider-side hash of a prefix block, with cached reads billed at 10%
+(Anthropic) or 50% (OpenAI) of the normal input rate.
+
+litellm exposes Anthropic-style caching via per-message
+`cache_control: {"type": "ephemeral"}` markers. OpenAI's automatic caching
+requires no markers but only kicks in for prefixes ≥ 1024 tokens.
+
+### 6.2 Scope
+
+Add cache markers to two stable prefix blocks per `LiteLLMProvider.complete`
+call:
+
+1. **System prompt** — first message, role=system, never mutates within a
+   session
+2. **Tool schemas** — passed via `tools=` parameter, stable across turns of
+   the same agent run
+
+The user-conversation messages remain uncached (they grow each turn).
+
+### 6.3 Implementation sketch
+
+In `src/norn/core/llm.py`:
+
+```python
+def _apply_cache_markers(
+    messages: list[dict],
+    tools: list[dict] | None,
+    enabled: bool,
+) -> tuple[list[dict], list[dict] | None]:
+    """Tag system prompt + tool schemas with cache_control: ephemeral.
+
+    No-op if `enabled` is False or if the model/provider does not support
+    caching (litellm silently ignores unknown fields, but we gate to be
+    explicit and to avoid masking real errors).
+    """
+    if not enabled:
+        return messages, tools
+
+    new_messages = list(messages)
+    if new_messages and new_messages[0].get("role") == "system":
+        # Anthropic format: content becomes a list of blocks
+        sys_msg = dict(new_messages[0])
+        content = sys_msg.get("content", "")
+        if isinstance(content, str):
+            sys_msg["content"] = [
+                {
+                    "type": "text",
+                    "text": content,
+                    "cache_control": {"type": "ephemeral"},
+                }
+            ]
+        new_messages[0] = sys_msg
+
+    new_tools = tools
+    if tools:
+        # Mark the tools block as cacheable; litellm propagates this to
+        # provider-specific shapes.
+        new_tools = list(tools)
+        if new_tools:
+            new_tools[-1] = {
+                **new_tools[-1],
+                "cache_control": {"type": "ephemeral"},
+            }
+
+    return new_messages, new_tools
+```
+
+Configuration knob:
+
+```yaml
+# configs/default.yaml
+llm:
+  prompt_cache: true   # default true; harmless on non-supporting providers
+```
+
+### 6.4 Provider eligibility
+
+Conservative gate: enable only when the model id starts with
+`anthropic/`, `openrouter/anthropic/`, or `openai/gpt-4o`. Other models
+ignore the field but we want explicit opt-in to keep diagnostics clean.
+
+A small helper in `llm.py`:
+
+```python
+_CACHE_ELIGIBLE_PREFIXES = (
+    "anthropic/",
+    "openrouter/anthropic/",
+    "openai/gpt-4o",
+    "openai/gpt-4.1",
+)
+
+
+def _supports_prompt_cache(model: str) -> bool:
+    return model.startswith(_CACHE_ELIGIBLE_PREFIXES)
+```
+
+### 6.5 Observability
+
+The `llm.complete` log event already records `prompt_tokens`. To verify
+caching works, add two fields when the provider returns them (Anthropic
+exposes `cache_creation_input_tokens` and `cache_read_input_tokens` on the
+usage object):
+
+```python
+event["cache_read_tokens"] = getattr(usage, "cache_read_input_tokens", 0) or 0
+event["cache_creation_tokens"] = getattr(usage, "cache_creation_input_tokens", 0) or 0
+```
+
+This makes the cache hit rate observable via `norn logs tail --event llm.complete`.
+
+### 6.6 Tests
+
+- Unit: `_apply_cache_markers` with system + tools, with system only,
+  without system, disabled flag, edge cases (empty messages, no tools).
+- Unit: `_supports_prompt_cache` truth table.
+- Integration: mock `litellm.acompletion` to return a usage object with
+  `cache_read_input_tokens=42` and assert the log event carries the field.
+
+Estimated test additions: +6 to +8.
+
+### 6.7 Risks
+
+- **Anthropic minimum block size** — caching only kicks in for blocks
+  ≥ 1024 tokens. Small system prompts won't benefit. Acceptable; we ship
+  the markers anyway and let the provider decide.
+- **Tool schema mutation breaks the cache** — if the tool list changes
+  between turns (e.g. MCP load), the cache invalidates. Acceptable, this
+  is a feature not a bug.
+- **Stale cache data** — `ephemeral` lasts ~5 minutes on Anthropic. Long
+  idle sessions pay the cache-creation premium twice. Document, don't fix.
+- **Test pollution** — mock providers in tests must accept the
+  `cache_control` markers without choking. Verify in test harness.
+
+### 6.8 Success criteria
+
+- New config flag `llm.prompt_cache` defaults to `true`
+- A run against an Anthropic model emits `llm.complete` events with
+  `cache_creation_tokens > 0` on turn 1 and `cache_read_tokens > 0` on
+  turn 2+
+- All existing tests still pass
+- New unit tests for marker application and eligibility pass
+
+---
+
+## 7. Bottom-line targets
 
 | Metric | Phase 9 v1 close | Phase 9 v2 target |
 |---|---|---|
-| Tests passing | 507 | ~545–555 (+38 to +48) |
+| Tests passing | 507 | ~553–563 (+46 to +56) |
 | Ruff errors | 38 | 29 (28 E402 + 1 acceptable margin) |
 | CI status | none | green on `main` |
-| Commits on `main` | 12 | +10 to +12 |
+| Commits on `main` | 12 | +12 to +14 |
 | Push to remote | no | no |
 
-## 7. Execution order
+## 8. Execution order
 
 1. **E1** (CI) — 2-step:
    1. Ruff cleanup commit (fix F401, N806, SIM105)
    2. Workflow file commit
 2. **D3** (4 tests) — one commit per test, or grouped (TBD by implementer)
 3. **B1.5** — enum first, then 5 family commits
+4. **G** (prompt caching) — single workstream, ~3 commits:
+   1. Helper functions + unit tests (`_apply_cache_markers`,
+      `_supports_prompt_cache`)
+   2. Wire into `LiteLLMProvider.complete` + observability fields
+   3. Config knob + integration test
 
 Each major step ends with a `pytest` + `ruff check` verification before
-moving to the next. Sub-agent driven development (implementer → spec
-reviewer → code quality reviewer) for the heavier code commits; trivial
-edits inline.
+moving to the next. Sub-agent driven development for heavier code commits;
+trivial edits inline.
 
-## 8. Risks & mitigations
+## 9. Risks & mitigations
 
 | Risk | Mitigation |
 |---|---|
@@ -282,21 +447,29 @@ edits inline.
 | B1.5 large diff hard to review | Family-by-family commits (≤6 files each) |
 | Mapping a pre-existing error to wrong category | Document the mapping in code comments at each site; reviewer catches |
 | New ruff rule triggered by new code | Fix immediately; do not let baseline drift |
+| Prompt caching markers break a non-Anthropic provider | Eligibility gate (`_supports_prompt_cache`) keeps the markers off unsupported models |
+| Cache observability fields missing on non-Anthropic providers | `getattr(..., 0) or 0` fallback ensures the field is always present (zero) |
 
-## 9. Open questions (to resolve during implementation)
+## 10. Open questions (to resolve during implementation)
 
 1. **`session.end` failure marker** — Should `agent.run()` emit a different
    event (`session.failed`?) or annotate `session.end` with a status field?
    Decide when implementing D3 test 2.
 2. **Empty messages behaviour** — Observe litellm's default before deciding
    whether to add validation in `LiteLLMProvider`.
-3. **CI cache key** — Default `setup-uv` behaviour vs. explicit `cache-dependency-glob`?
-   Trial defaults first.
+3. **CI cache key** — Default `setup-uv` behaviour vs. explicit
+   `cache-dependency-glob`? Trial defaults first.
+4. **Cache marker placement on tools** — Anthropic docs are ambiguous on
+   whether to mark each tool or only the last one. We mark the last one
+   (so the entire `tools` array becomes a single cache block) and verify
+   empirically with `cache_creation_tokens` on first call.
 
 ---
 
-## 10. Approval
+## 11. Approval
 
-Design approved by user (FR session, 2026-04-22). Next step: invoke
+Design approved by user (FR session, 2026-04-22). Workstream G (prompt
+caching) added in second pass after external code-scanner review surfaced
+the missing token cache as a real cost gap. Next step: invoke
 `writing-plans` skill to produce the detailed implementation plan in
 `docs/plans/2026-04-22-norn-phase9-v2-implementation.md`.
