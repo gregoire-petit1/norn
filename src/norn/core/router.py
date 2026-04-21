@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import logging
 import re
 from enum import StrEnum
 from typing import TYPE_CHECKING
 
 from norn.core.llm import LiteLLMProvider
+
+_logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -70,13 +73,14 @@ def _classify_complexity(messages: list[Message], tools: list[dict]) -> Tier:
 
 _TECHNICAL_ERROR_SIGNALS = (
     "402",
+    "429",
+    "502",
+    "503",
     "timeout",
     "connection",
-    "http",
     "rate limit",
-    "503",
-    "502",
-    "429",
+    "http error",  # was "http" — too broad, matched URLs and unrelated errors
+    "httpx",  # litellm raises httpx.HTTPError-derived exceptions
 )
 
 _FALLBACK_ORDER: list[str] = ["fast", "standard", "powerful"]
@@ -113,11 +117,16 @@ class RouterProvider:
         self._config = config
         self.default_tier = default_tier
         self._providers: dict[Tier, LiteLLMProvider] = {}
+        valid_tiers = {t.value for t in Tier}
         for tier_name, tier_cfg in config.tiers.items():
-            try:
-                tier = Tier(tier_name)
-            except ValueError:
-                continue  # Silently skip unknown tier names
+            if tier_name not in valid_tiers:
+                _logger.warning(
+                    "Unknown router tier %r in config; ignoring (valid: %s)",
+                    tier_name,
+                    sorted(valid_tiers),
+                )
+                continue
+            tier = Tier(tier_name)
             self._providers[tier] = _build_tier_provider(
                 tier_cfg.provider, tier_cfg.model, tier_cfg.api_base
             )
@@ -167,14 +176,18 @@ class RouterProvider:
         msg = "No providers configured for routing"
         raise RuntimeError(msg)
 
+    # TODO(phase7+): support pre-first-chunk fallback in stream() for technical errors.
+    # Current design: no fallback (avoids stream corruption). If first chunk hasn't been
+    # yielded yet, falling back is safe — implement when needed.
     async def stream(
         self,
         messages: list[Message],
         tools: list[dict] | None = None,
         temperature: float = 0.0,
         max_tokens: int = 4096,
+        tier_override: Tier | None = None,
     ) -> AsyncIterator[StreamChunk]:
-        tier = self.default_tier or _classify_complexity(messages, tools or [])
+        tier = tier_override or self.default_tier or _classify_complexity(messages, tools or [])
         provider = self._providers.get(tier)
         if provider is None:
             msg = f"No provider configured for tier {tier}"

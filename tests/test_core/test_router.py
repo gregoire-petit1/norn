@@ -104,9 +104,7 @@ def _make_router_config() -> RouterConfig:
             "standard": RouterTierConfig(
                 provider="openrouter", model="stepfun/step-3.5-flash:free"
             ),
-            "powerful": RouterTierConfig(
-                provider="openrouter", model="anthropic/claude-sonnet-4"
-            ),
+            "powerful": RouterTierConfig(provider="openrouter", model="anthropic/claude-sonnet-4"),
         },
     )
 
@@ -202,12 +200,15 @@ async def test_router_no_fallback_on_non_technical_error():
     config = _make_router_config()
     router = RouterProvider(config)
 
-    with patch.object(
-        router._providers[Tier.FAST],
-        "complete",
-        new_callable=AsyncMock,
-        side_effect=ValueError("invalid argument"),
-    ), pytest.raises(ValueError, match="invalid argument"):
+    with (
+        patch.object(
+            router._providers[Tier.FAST],
+            "complete",
+            new_callable=AsyncMock,
+            side_effect=ValueError("invalid argument"),
+        ),
+        pytest.raises(ValueError, match="invalid argument"),
+    ):
         await router.complete([_msg("hello")])
 
 
@@ -235,7 +236,8 @@ async def test_router_raises_when_all_tiers_exhausted():
             "complete",
             new_callable=AsyncMock,
             side_effect=Exception("502 Bad Gateway"),
-        ),pytest.raises(Exception, match="502")
+        ),
+        pytest.raises(Exception, match="502"),  # noqa: B017, PT012
     ):
         await router.complete([_msg("hello")])
 
@@ -302,3 +304,100 @@ async def test_router_fallback_skips_missing_tiers():
         result = await router.complete([_msg("hello")])
         assert result.content == "from standard"
         mock_standard.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_router_raises_when_no_tier_at_or_above_start():
+    """If only lower tiers are configured and start_tier is higher, raise RuntimeError."""
+    config = RouterConfig(
+        enabled=True,
+        tiers={"fast": RouterTierConfig(provider="ollama", model="m")},
+    )
+    router = RouterProvider(config)
+    with pytest.raises(RuntimeError, match="No providers configured"):
+        await router.complete([_msg("x")], tier_override=Tier.POWERFUL)
+
+
+# ── Technical-error signal classification ──────────────────────────────────
+
+
+from norn.core.router import _is_technical_error  # noqa: E402
+
+
+@pytest.mark.parametrize(
+    "err_msg",
+    [
+        "402 Payment Required",
+        "429 Too Many Requests",
+        "502 Bad Gateway",
+        "503 Service Unavailable",
+        "connection refused",
+        "request timeout",
+        "rate limit exceeded",
+        "HTTP error 500",
+        "httpx.ConnectError: failed",
+    ],
+)
+def test_is_technical_error_positive_signals(err_msg: str):
+    assert _is_technical_error(Exception(err_msg)) is True
+
+
+@pytest.mark.parametrize(
+    "err_msg",
+    [
+        "invalid argument",
+        "key not found in dict",
+        "permission denied for resource",
+        "expected http://url to be valid",  # Was a false positive with old "http" signal
+        "validation failed: missing field",
+    ],
+)
+def test_is_technical_error_negative_signals(err_msg: str):
+    assert _is_technical_error(Exception(err_msg)) is False
+
+
+# ── stream() ───────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_router_stream_with_tier_override():
+    """stream() accepts tier_override for API symmetry with complete()."""
+    config = _make_router_config()
+    router = RouterProvider(config)
+
+    async def fake_stream(*args, **kwargs):
+        from norn.core.models import StreamChunk
+
+        yield StreamChunk(content="from override", done=True)
+
+    with patch.object(
+        router._providers[Tier.POWERFUL],
+        "stream",
+        side_effect=fake_stream,
+    ):
+        chunks = []
+        async for chunk in router.stream([_msg("hi")], tier_override=Tier.POWERFUL):
+            chunks.append(chunk)
+        assert len(chunks) == 1
+        assert chunks[0].content == "from override"
+
+
+# ── Config validation ──────────────────────────────────────────────────────
+
+
+def test_router_warns_on_unknown_tier_name(caplog):
+    """Unknown tier names in config produce a warning, not silent skip."""
+    import logging
+
+    config = RouterConfig(
+        enabled=True,
+        tiers={
+            "fast": RouterTierConfig(provider="ollama", model="m"),
+            "fastt": RouterTierConfig(provider="ollama", model="typo"),  # typo
+        },
+    )
+    with caplog.at_level(logging.WARNING, logger="norn.core.router"):
+        router = RouterProvider(config)
+    assert Tier.FAST in router._providers
+    assert len(router._providers) == 1
+    assert any("fastt" in record.message for record in caplog.records)
