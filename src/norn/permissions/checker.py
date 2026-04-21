@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING
 
@@ -9,6 +10,7 @@ if TYPE_CHECKING:
     from norn.core.config import PermissionMode
     from norn.permissions.classifier import RiskClassifier
 
+from norn.observability import EventName, get_logger
 from norn.permissions.models import PermissionDecision, PermissionRequest
 from norn.tools.base import RiskLevel
 
@@ -17,6 +19,8 @@ PromptFn = Callable[[PermissionRequest, str], Awaitable[bool]]
 
 # Risk level ordering for comparison
 _RISK_ORDER = {RiskLevel.LOW.value: 0, RiskLevel.MEDIUM.value: 1, RiskLevel.HIGH.value: 2}
+
+_log = get_logger(__name__)
 
 
 class PermissionChecker:
@@ -43,7 +47,24 @@ class PermissionChecker:
         effective_risk = escalation.risk
 
         # Step 2: Apply mode-specific rules
-        return await self._apply_mode(request, effective_risk, escalation.is_destructive)
+        decision = await self._apply_mode(request, effective_risk, escalation.is_destructive)
+
+        # Step 3: One-shot observability event. Event field is named
+        # ``granted`` per the design doc (see
+        # ``docs/plans/2026-04-21-norn-phase8-observability-design.md``
+        # §permission.decision) even though the Python attribute on
+        # :class:`PermissionDecision` is ``approved``. Fail-open: a logging
+        # failure must never affect permission control flow.
+        with contextlib.suppress(Exception):
+            _log.info(
+                EventName.PERMISSION_DECISION,
+                tool_name=request.tool_name,
+                mode=self.mode.value,
+                risk_level=effective_risk,
+                granted=decision.approved,
+                reason=decision.reason,
+            )
+        return decision
 
     async def _apply_mode(
         self,

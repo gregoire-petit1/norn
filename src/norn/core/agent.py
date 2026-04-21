@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextlib
+import time
 from typing import TYPE_CHECKING
 
 from norn.core.models import LLMResponse, Message, Role, ToolCall
@@ -110,7 +111,39 @@ class AgentLoop:
         return final
 
     async def _execute_tool(self, call: ToolCall) -> ToolResult:
-        """Execute a single tool call, with optional permission check."""
+        """Execute a single tool call, with optional permission check.
+
+        Emits a ``tool.call`` structured event on every invocation (including
+        unknown-tool and permission-denied paths) with ``tool_name``,
+        ``duration_ms``, ``success``, and — on failure — the harmonised
+        ``error_type`` / ``error_message`` pair.
+
+        Direct emission is used rather than :func:`measure_and_log`: tool
+        failures are never raised here (they are wrapped into
+        ``ToolResult(error=...)``), so the helper's non-raise branch would
+        always report ``success=True`` and the caller cannot override it.
+        The :func:`contextlib.suppress` wrapper preserves fail-open
+        semantics.
+        """
+        start = time.monotonic()
+        result = await self._execute_tool_inner(call)
+        payload: dict[str, object] = {
+            "tool_name": call.name,
+            "duration_ms": int((time.monotonic() - start) * 1000),
+            "success": result.error is None,
+        }
+        if result.error is not None:
+            payload["error_type"] = "ToolExecutionError"
+            payload["error_message"] = result.error
+        with contextlib.suppress(Exception):
+            if result.error is None:
+                _log.info(EventName.TOOL_CALL, **payload)
+            else:
+                _log.error(EventName.TOOL_CALL, **payload)
+        return result
+
+    async def _execute_tool_inner(self, call: ToolCall) -> ToolResult:
+        """Core tool resolution + invocation. Never raises; returns ToolResult."""
         tool = self.registry.get(call.name)
         if tool is None:
             return ToolResult(error=f"Unknown tool: {call.name}")
