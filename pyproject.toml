@@ -49,6 +49,9 @@ packages = ["src/norn"]
 asyncio_mode = "auto"
 testpaths = ["tests"]
 pythonpath = ["src"]
+markers = [
+    "no_log_redirect: opt out of the autouse ``_redirect_default_log_dir`` fixture (for tests asserting on production defaults)",
+]
 
 [tool.ruff]
 target-version = "py311"

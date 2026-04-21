@@ -6,6 +6,7 @@ import pytest
 from norn.core.config import LoggingConfig, NornConfig
 
 
+@pytest.mark.no_log_redirect
 def test_logging_config_defaults():
     cfg = LoggingConfig()
     assert cfg.enabled is True
