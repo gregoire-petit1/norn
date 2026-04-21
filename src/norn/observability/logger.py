@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
 import uuid
@@ -37,6 +38,8 @@ def init_logging(config: LoggingConfig, cli_level_override: str | None = None) -
     # Avoid duplicate handler registration on re-init
     root = logging.getLogger()
     for h in list(root.handlers):
+        with contextlib.suppress(Exception):
+            h.close()  # fail-open: never let cleanup crash logging init
         root.removeHandler(h)
 
     if not config.enabled:
