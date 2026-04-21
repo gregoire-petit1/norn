@@ -92,8 +92,12 @@ def _is_technical_error(exc: Exception) -> bool:
     return any(signal in msg for signal in _TECHNICAL_ERROR_SIGNALS)
 
 
-def _build_tier_provider(provider: str, model: str, api_base: str | None) -> LiteLLMProvider:
-    """Build a LiteLLMProvider for a single tier, applying provider prefix."""
+def build_litellm_provider(provider: str, model: str, api_base: str | None) -> LiteLLMProvider:
+    """Build a LiteLLMProvider, applying the LiteLLM provider-prefix convention.
+
+    Used both internally by `RouterProvider` (to instantiate per-tier providers) and
+    by the CLI's legacy single-provider path, to keep the prefixing rule in one place.
+    """
     prefixed_model = model
     if provider == "ollama":
         prefixed_model = f"ollama/{model}"
@@ -127,7 +131,7 @@ class RouterProvider:
                 )
                 continue
             tier = Tier(tier_name)
-            self._providers[tier] = _build_tier_provider(
+            self._providers[tier] = build_litellm_provider(
                 tier_cfg.provider, tier_cfg.model, tier_cfg.api_base
             )
 

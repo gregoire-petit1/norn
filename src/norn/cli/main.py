@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Annotated
 
 from dotenv import load_dotenv
 
@@ -17,13 +17,13 @@ from rich.prompt import Confirm, Prompt
 
 from norn.core.agent import AgentLoop
 from norn.core.config import NornConfig
-from norn.core.llm import LiteLLMProvider
-from norn.core.router import RouterProvider, Tier
+from norn.core.router import RouterProvider, Tier, build_litellm_provider
 from norn.flags.registry import FeatureFlag, FeatureFlagRegistry
 from norn.permissions.checker import PermissionChecker
 from norn.permissions.classifier import RiskClassifier
 
 if TYPE_CHECKING:
+    from norn.core.llm import LiteLLMProvider
     from norn.permissions.models import PermissionRequest
 
 from norn.memory.models import MemoryConfig
@@ -46,6 +46,16 @@ from norn.tools.web.web_search import WebSearchTool
 
 app = typer.Typer(name="norn", help="Norn - the coding agent that weaves your destiny")
 console = Console()
+
+# Reusable CLI option for forcing a router tier.
+_TIER_NAMES_HELP = ", ".join(t.value for t in Tier)
+ModelOption = Annotated[
+    str | None,
+    typer.Option(
+        "--model",
+        help=f"Force routing tier: {_TIER_NAMES_HELP} (router mode only)",
+    ),
+]
 
 
 def _build_registry(flag_registry: FeatureFlagRegistry | None = None) -> ToolRegistry:
@@ -84,21 +94,16 @@ def _build_provider(
         default_tier: Tier | None = None
         if model_override is not None:
             try:
-                default_tier = Tier(model_override)
+                default_tier = Tier(model_override.lower())
             except ValueError:
                 console.print(
                     f"[yellow]Unknown tier '{model_override}'. "
-                    f"Valid: fast, standard, powerful. Ignoring.[/yellow]"
+                    f"Valid: {_TIER_NAMES_HELP}. Ignoring.[/yellow]"
                 )
         return RouterProvider(config.router, default_tier=default_tier)
 
     # Legacy single-provider path
-    model = config.llm.model
-    if config.llm.provider == "ollama":
-        model = f"ollama/{config.llm.model}"
-    elif config.llm.provider == "openrouter":
-        model = f"openrouter/{config.llm.model}"
-    return LiteLLMProvider(model=model, api_base=config.llm.api_base)
+    return build_litellm_provider(config.llm.provider, config.llm.model, config.llm.api_base)
 
 
 async def _cli_prompt_fn(request: PermissionRequest, description: str) -> bool:
@@ -173,11 +178,7 @@ def _load_mcp_adapters(config: NornConfig, flag_registry: FeatureFlagRegistry) -
 
 
 @app.command()
-def chat(
-    model: str | None = typer.Option(
-        None, "--model", help="Force routing tier: fast, standard, or powerful (router mode only)"
-    ),
-) -> None:
+def chat(model: ModelOption = None) -> None:
     """Start an interactive chat session."""
     config = NornConfig.load()
     config.apply_env_overrides()
@@ -241,9 +242,7 @@ def chat(
 @app.command()
 def run(
     prompt: str = typer.Argument(help="One-shot prompt to execute"),
-    model: str | None = typer.Option(
-        None, "--model", help="Force routing tier: fast, standard, or powerful (router mode only)"
-    ),
+    model: ModelOption = None,
 ) -> None:
     """Run a one-shot prompt and exit."""
     config = NornConfig.load()
@@ -271,11 +270,7 @@ def run(
 
 
 @app.command()
-def dream(
-    model: str | None = typer.Option(
-        None, "--model", help="Force routing tier: fast, standard, or powerful (router mode only)"
-    ),
-) -> None:
+def dream(model: ModelOption = None) -> None:
     """Manually trigger a memory consolidation dream."""
     config = NornConfig.load()
     config.apply_env_overrides()
@@ -309,9 +304,7 @@ def dream(
 @app.command()
 def coordinate(
     prompt: str = typer.Argument(help="Task to coordinate"),
-    model: str | None = typer.Option(
-        None, "--model", help="Force routing tier: fast, standard, or powerful (router mode only)"
-    ),
+    model: ModelOption = None,
 ) -> None:
     """Run a task using multi-agent coordinator mode."""
     config = NornConfig.load()
