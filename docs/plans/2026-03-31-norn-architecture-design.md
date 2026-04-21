@@ -327,3 +327,5 @@ Coordinator only activates when justified (adds latency):
 - Rust rewrite of hot paths
 - RL training integration (trajectory compression)
 - Skills system with auto-creation (Hermes pattern)
+- Meta-Harness: End-to-End Optimization of Model Harnesses (Stanford, March 2026)
+- TUI-like Claude Code or Opencode when called "norn"
