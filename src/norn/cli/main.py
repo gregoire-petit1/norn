@@ -260,6 +260,14 @@ def run(
     checker = _build_permission_checker(config)
     memory_store = _build_memory_store(config)
     session_logger = SessionLogger(memory_store) if memory_store else None
+    agent = AgentLoop(
+        llm=provider,
+        registry=registry,
+        cwd=str(Path.cwd()),
+        permission_checker=checker,
+        memory_store=memory_store,
+        session_logger=session_logger,
+    )
 
     async def _run_once() -> None:
         response = await agent.run(prompt)
