@@ -8,7 +8,7 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from norn.tools.base import RiskLevel, ToolContext, ToolResult
+from norn.tools.base import RiskLevel, ToolContext, ToolErrorType, ToolResult
 
 
 class WebFetchInput(BaseModel):
@@ -82,7 +82,8 @@ class WebFetchTool:
             import httpx
         except ImportError:
             return ToolResult(
-                error="httpx is not installed. Install with: uv pip install 'norn[web]'"
+                error="httpx is not installed. Install with: uv pip install 'norn[web]'",
+                error_type=ToolErrorType.NOT_SUPPORTED,
             )
 
         try:
@@ -94,7 +95,10 @@ class WebFetchTool:
                 response = await client.get(input.url)
 
             if response.status_code >= 400:
-                return ToolResult(error=f"HTTP {response.status_code}: {response.reason_phrase}")
+                return ToolResult(
+                    error=f"HTTP {response.status_code}: {response.reason_phrase}",
+                    error_type=ToolErrorType.HTTP_ERROR,
+                )
 
             content_type = response.headers.get("content-type", "")
             text = response.text
@@ -108,4 +112,7 @@ class WebFetchTool:
             return ToolResult(output=text or "(empty response)")
 
         except Exception as e:
-            return ToolResult(error=f"Fetch failed: {e}")
+            return ToolResult(
+                error=f"Fetch failed: {e}",
+                error_type=ToolErrorType.NETWORK_ERROR,
+            )

@@ -125,3 +125,59 @@ async def test_search_connection_error(tool, tmp_path):
     ctx = ToolContext(cwd=str(tmp_path))
     result = await tool.execute(WebSearchInput(query="oops"), ctx, _transport=transport)
     assert result.is_error is True
+
+
+# --------------------------------------------------------------------------- #
+# B1.5 - ToolErrorType taxonomy
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.asyncio
+async def test_search_http_error_sets_http_error_type(tool, tmp_path):
+    """HTTP 4xx/5xx tags as HTTP_ERROR."""
+    from norn.tools.base import ToolErrorType
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(429, text="Too Many Requests")
+
+    transport = httpx.MockTransport(handler=handler)
+    ctx = ToolContext(cwd=str(tmp_path))
+    result = await tool.execute(WebSearchInput(query="rate-limited"), ctx, _transport=transport)
+    assert result.is_error is True
+    assert result.error_type == ToolErrorType.HTTP_ERROR
+
+
+@pytest.mark.asyncio
+async def test_search_connection_error_sets_network_error_type(tool, tmp_path):
+    """ConnectError tags as NETWORK_ERROR."""
+    from norn.tools.base import ToolErrorType
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("refused")
+
+    transport = httpx.MockTransport(handler=handler)
+    ctx = ToolContext(cwd=str(tmp_path))
+    result = await tool.execute(WebSearchInput(query="oops"), ctx, _transport=transport)
+    assert result.is_error is True
+    assert result.error_type == ToolErrorType.NETWORK_ERROR
+
+
+@pytest.mark.asyncio
+async def test_search_missing_httpx_sets_not_supported(tool, tmp_path, monkeypatch):
+    """Missing httpx tags as NOT_SUPPORTED."""
+    import builtins
+
+    from norn.tools.base import ToolErrorType
+
+    real_import = builtins.__import__
+
+    def fake_import(name, *args, **kwargs):
+        if name == "httpx":
+            raise ImportError("no httpx")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", fake_import)
+    ctx = ToolContext(cwd=str(tmp_path))
+    result = await tool.execute(WebSearchInput(query="x"), ctx)
+    assert result.is_error is True
+    assert result.error_type == ToolErrorType.NOT_SUPPORTED

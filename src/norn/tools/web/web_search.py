@@ -8,7 +8,7 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from norn.tools.base import RiskLevel, ToolContext, ToolResult
+from norn.tools.base import RiskLevel, ToolContext, ToolErrorType, ToolResult
 
 _DDG_LITE_URL = "https://lite.duckduckgo.com/lite/"
 
@@ -99,7 +99,8 @@ class WebSearchTool:
             import httpx
         except ImportError:
             return ToolResult(
-                error="httpx is not installed. Install with: uv pip install 'norn[web]'"
+                error="httpx is not installed. Install with: uv pip install 'norn[web]'",
+                error_type=ToolErrorType.NOT_SUPPORTED,
             )
 
         try:
@@ -112,7 +113,10 @@ class WebSearchTool:
                 response = await client.post(_DDG_LITE_URL, data={"q": input.query, "kl": "us-en"})
 
             if response.status_code >= 400:
-                return ToolResult(error=f"HTTP {response.status_code}: {response.reason_phrase}")
+                return ToolResult(
+                    error=f"HTTP {response.status_code}: {response.reason_phrase}",
+                    error_type=ToolErrorType.HTTP_ERROR,
+                )
 
             results = _parse_ddg_html(response.text)
 
@@ -130,4 +134,7 @@ class WebSearchTool:
             return ToolResult(output="\n".join(lines).strip())
 
         except Exception as e:
-            return ToolResult(error=f"Search failed: {e}")
+            return ToolResult(
+                error=f"Search failed: {e}",
+                error_type=ToolErrorType.NETWORK_ERROR,
+            )

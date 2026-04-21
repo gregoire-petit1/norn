@@ -98,3 +98,63 @@ async def test_fetch_connection_error(tool, tmp_path):
         WebFetchInput(url="https://unreachable.example.com/"), ctx, _transport=transport
     )
     assert result.is_error is True
+
+
+# --------------------------------------------------------------------------- #
+# B1.5 - ToolErrorType taxonomy
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.asyncio
+async def test_fetch_http_error_sets_http_error_type(tool, tmp_path):
+    """HTTP 4xx/5xx tags as HTTP_ERROR."""
+    from norn.tools.base import ToolErrorType
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(500, text="Server Error")
+
+    transport = httpx.MockTransport(handler=handler)
+    ctx = ToolContext(cwd=str(tmp_path))
+    result = await tool.execute(
+        WebFetchInput(url="https://example.com/boom"), ctx, _transport=transport
+    )
+    assert result.is_error is True
+    assert result.error_type == ToolErrorType.HTTP_ERROR
+
+
+@pytest.mark.asyncio
+async def test_fetch_connection_error_sets_network_error_type(tool, tmp_path):
+    """ConnectError / TimeoutException tag as NETWORK_ERROR."""
+    from norn.tools.base import ToolErrorType
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("refused")
+
+    transport = httpx.MockTransport(handler=handler)
+    ctx = ToolContext(cwd=str(tmp_path))
+    result = await tool.execute(
+        WebFetchInput(url="https://unreachable.example.com/"), ctx, _transport=transport
+    )
+    assert result.is_error is True
+    assert result.error_type == ToolErrorType.NETWORK_ERROR
+
+
+@pytest.mark.asyncio
+async def test_fetch_missing_httpx_sets_not_supported(tool, tmp_path, monkeypatch):
+    """Missing httpx tags as NOT_SUPPORTED."""
+    import builtins
+
+    from norn.tools.base import ToolErrorType
+
+    real_import = builtins.__import__
+
+    def fake_import(name, *args, **kwargs):
+        if name == "httpx":
+            raise ImportError("no httpx")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", fake_import)
+    ctx = ToolContext(cwd=str(tmp_path))
+    result = await tool.execute(WebFetchInput(url="https://example.com/"), ctx)
+    assert result.is_error is True
+    assert result.error_type == ToolErrorType.NOT_SUPPORTED
