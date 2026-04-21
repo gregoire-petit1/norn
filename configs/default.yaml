@@ -31,3 +31,17 @@ mcp:
   enabled: false        # Phase 6: MCP server integration
   servers: []
   timeout: 30.0
+
+router:
+  enabled: false        # Phase 7: 3-tier routing (fast/standard/powerful) with technical-error fallback
+  tiers:
+    fast:
+      provider: "ollama"
+      model: "qwen2.5-coder:7b"
+    standard:
+      provider: "openrouter"
+      model: "stepfun/step-3.5-flash:free"
+    powerful:
+      provider: "openrouter"
+      model: "anthropic/claude-sonnet-4"
+
