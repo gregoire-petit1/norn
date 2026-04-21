@@ -29,6 +29,7 @@ if TYPE_CHECKING:
 from norn.memory.models import MemoryConfig
 from norn.memory.session_logger import SessionLogger
 from norn.memory.store import MemoryStore
+from norn.observability import init_logging, new_session
 from norn.tools.bash_tool import BashTool
 from norn.tools.file_edit import FileEditTool
 from norn.tools.file_read import FileReadTool
@@ -177,11 +178,34 @@ def _load_mcp_adapters(config: NornConfig, flag_registry: FeatureFlagRegistry) -
         return []
 
 
+def _bootstrap_logging(config: NornConfig, verbose: bool = False) -> None:
+    """Initialize structured logging and bind a fresh session UUID.
+
+    Must be called at the start of every CLI command (before any work starts)
+    so that every subsequent log event carries a session_id.
+
+    Resolution order for log level:
+      --verbose flag (forces DEBUG)  >  NORN_LOG_LEVEL env  >  config.logging.level
+    """
+    init_logging(
+        config.logging,
+        cli_level_override="DEBUG" if verbose else None,
+    )
+    new_session()
+
+
+VerboseOption = Annotated[
+    bool,
+    typer.Option("--verbose", "-v", help="Enable DEBUG level structured logging"),
+]
+
+
 @app.command()
-def chat(model: ModelOption = None) -> None:
+def chat(model: ModelOption = None, verbose: VerboseOption = False) -> None:
     """Start an interactive chat session."""
     config = NornConfig.load()
     config.apply_env_overrides()
+    _bootstrap_logging(config, verbose=verbose)
 
     flag_registry = _build_flag_registry(config)
     provider = _build_provider(config, model_override=model)
@@ -243,10 +267,12 @@ def chat(model: ModelOption = None) -> None:
 def run(
     prompt: str = typer.Argument(help="One-shot prompt to execute"),
     model: ModelOption = None,
+    verbose: VerboseOption = False,
 ) -> None:
     """Run a one-shot prompt and exit."""
     config = NornConfig.load()
     config.apply_env_overrides()
+    _bootstrap_logging(config, verbose=verbose)
 
     flag_registry = _build_flag_registry(config)
     provider = _build_provider(config, model_override=model)
@@ -278,10 +304,11 @@ def run(
 
 
 @app.command()
-def dream(model: ModelOption = None) -> None:
+def dream(model: ModelOption = None, verbose: VerboseOption = False) -> None:
     """Manually trigger a memory consolidation dream."""
     config = NornConfig.load()
     config.apply_env_overrides()
+    _bootstrap_logging(config, verbose=verbose)
 
     store = _build_memory_store(config)
     if store is None:
@@ -313,10 +340,12 @@ def dream(model: ModelOption = None) -> None:
 def coordinate(
     prompt: str = typer.Argument(help="Task to coordinate"),
     model: ModelOption = None,
+    verbose: VerboseOption = False,
 ) -> None:
     """Run a task using multi-agent coordinator mode."""
     config = NornConfig.load()
     config.apply_env_overrides()
+    _bootstrap_logging(config, verbose=verbose)
 
     if not config.coordinator.enabled:
         console.print(
@@ -372,10 +401,11 @@ def coordinate(
 
 
 @app.command()
-def tools() -> None:
+def tools(verbose: VerboseOption = False) -> None:
     """List available tools."""
     config = NornConfig.load()
     config.apply_env_overrides()
+    _bootstrap_logging(config, verbose=verbose)
     flag_registry = _build_flag_registry(config)
     registry = _build_registry(flag_registry)
     # Load MCP adapters and inject into registry
@@ -394,10 +424,11 @@ def tools() -> None:
 
 
 @app.command()
-def config() -> None:
+def config(verbose: VerboseOption = False) -> None:
     """Show current configuration."""
     cfg = NornConfig.load()
     cfg.apply_env_overrides()
+    _bootstrap_logging(cfg, verbose=verbose)
     console.print("[bold]Current configuration:[/bold]\n")
     console.print(f"  LLM provider: {cfg.llm.provider}")
     console.print(f"  LLM model:    {cfg.llm.model}")
@@ -418,8 +449,11 @@ def config() -> None:
 
 
 @app.command()
-def version() -> None:
+def version(verbose: VerboseOption = False) -> None:
     """Show Norn version."""
+    config = NornConfig.load()
+    config.apply_env_overrides()
+    _bootstrap_logging(config, verbose=verbose)
     console.print("norn 0.1.0")
 
 
