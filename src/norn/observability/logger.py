@@ -71,8 +71,13 @@ def init_logging(config: LoggingConfig, cli_level_override: str | None = None) -
         build_file_handler,
     )
 
-    # Shared processor chain (runs before final rendering)
+    # Shared processor chain (runs before final rendering).
+    # ``merge_contextvars`` MUST run first so fields bound via
+    # ``structlog.contextvars.bind_contextvars`` / ``bound_contextvars``
+    # (e.g. the router's ``tier``) are present in the event dict before
+    # any downstream processor (cost, redact, …) inspects it.
     shared_processors: list = [
+        structlog.contextvars.merge_contextvars,
         structlog.stdlib.add_log_level,
         add_timestamp_iso,
         add_session_id,

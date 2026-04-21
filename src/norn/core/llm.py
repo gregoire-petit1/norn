@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import time
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
@@ -18,7 +17,7 @@ from norn.core.models import (
     TokenUsage,
     ToolCall,
 )
-from norn.observability import EventName, get_logger
+from norn.observability import EventName, get_logger, measure_and_log
 
 _log = get_logger(__name__)
 
@@ -134,44 +133,48 @@ class LiteLLMProvider:
         if tool_schemas:
             kwargs["tools"] = tool_schemas
 
-        start = time.monotonic()
-        try:
-            response = await litellm.acompletion(**kwargs)
-        except Exception as exc:
-            _log.error(
-                EventName.LLM_COMPLETE,
-                provider=_provider_from_model(self.model),
-                model=self.model,
-                latency_ms=int((time.monotonic() - start) * 1000),
-                error=str(exc),
-                error_type=type(exc).__name__,
-            )
-            raise
-
-        latency_ms = int((time.monotonic() - start) * 1000)
-        choice = response.choices[0]
-        usage = getattr(response, "usage", None)
-
-        _log.info(
+        async with measure_and_log(
+            _log,
             EventName.LLM_COMPLETE,
+            duration_field="latency_ms",
             provider=_provider_from_model(self.model),
             model=self.model,
-            prompt_tokens=getattr(usage, "prompt_tokens", 0) or 0,
-            completion_tokens=getattr(usage, "completion_tokens", 0) or 0,
-            total_tokens=getattr(usage, "total_tokens", 0) or 0,
-            latency_ms=latency_ms,
-            finish_reason=getattr(choice, "finish_reason", None),
-        )
+        ) as event:
+            response = await litellm.acompletion(**kwargs)
 
-        return LLMResponse(
-            content=choice.message.content,
-            tool_calls=_parse_tool_calls(choice.message.tool_calls),
-            usage=TokenUsage(
-                prompt_tokens=response.usage.prompt_tokens,
-                completion_tokens=response.usage.completion_tokens,
-                total_tokens=response.usage.total_tokens,
-            ),
-        )
+            # Guard against malformed / minimal responses:
+            # - ``response.choices`` may be empty (provider refusal, mocks).
+            # - ``response.usage`` may be ``None`` (some Ollama configs).
+            choice = response.choices[0] if response.choices else None
+            usage = getattr(response, "usage", None)
+
+            if usage is not None:
+                token_usage = TokenUsage(
+                    prompt_tokens=getattr(usage, "prompt_tokens", 0) or 0,
+                    completion_tokens=getattr(usage, "completion_tokens", 0) or 0,
+                    total_tokens=getattr(usage, "total_tokens", 0) or 0,
+                )
+            else:
+                token_usage = TokenUsage(
+                    prompt_tokens=0,
+                    completion_tokens=0,
+                    total_tokens=0,
+                )
+
+            event["prompt_tokens"] = token_usage.prompt_tokens
+            event["completion_tokens"] = token_usage.completion_tokens
+            event["total_tokens"] = token_usage.total_tokens
+            event["finish_reason"] = (
+                getattr(choice, "finish_reason", None) if choice is not None else None
+            )
+
+            content = choice.message.content if choice is not None else None
+            tool_calls = _parse_tool_calls(choice.message.tool_calls) if choice is not None else []
+            return LLMResponse(
+                content=content,
+                tool_calls=tool_calls,
+                usage=token_usage,
+            )
 
     async def stream(
         self,

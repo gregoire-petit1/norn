@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import re
 from enum import StrEnum
@@ -171,13 +172,15 @@ class RouterProvider:
             start_tier = _tier_from_score(score)
             reason = "classified"
 
-        _log.info(
-            EventName.ROUTING_DECISION,
-            chosen_tier=start_tier.value,
-            score=score,
-            signals=signals,
-            reason=reason,
-        )
+        # Observability is fail-open: never let a logging error affect routing.
+        with contextlib.suppress(Exception):
+            _log.info(
+                EventName.ROUTING_DECISION,
+                chosen_tier=start_tier.value,
+                score=score,
+                signals=signals,
+                reason=reason,
+            )
         return await self._call_with_fallback(
             start_tier,
             messages,
@@ -217,13 +220,15 @@ class RouterProvider:
                         next_tier = (
                             tiers_to_try[idx + 1].value if idx + 1 < len(tiers_to_try) else None
                         )
-                        _log.warning(
-                            EventName.FALLBACK,
-                            from_tier=tier.value,
-                            to_tier=next_tier,
-                            error_type=type(exc).__name__,
-                            error_message=str(exc),
-                        )
+                        # Fail-open: never let logging crash the fallback path.
+                        with contextlib.suppress(Exception):
+                            _log.warning(
+                                EventName.FALLBACK,
+                                from_tier=tier.value,
+                                to_tier=next_tier,
+                                error_type=type(exc).__name__,
+                                error_message=str(exc),
+                            )
                         continue
                     raise
 

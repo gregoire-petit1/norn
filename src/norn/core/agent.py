@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-import time
+import contextlib
 from typing import TYPE_CHECKING
 
 from norn.core.models import LLMResponse, Message, Role, ToolCall
-from norn.observability import EventName, get_logger
+from norn.observability import EventName, get_logger, measure_and_log
 from norn.tools.base import ToolContext, ToolResult
 
 if TYPE_CHECKING:
@@ -58,25 +58,12 @@ class AgentLoop:
 
     async def run(self, user_input: str) -> LLMResponse:
         """Run one turn of the agent loop."""
-        start = time.monotonic()
-        _log.info(EventName.AGENT_RUN, phase="start")
-        success = False
-        error: str | None = None
-        try:
-            result = await self._run_impl(user_input)
-            success = True
-            return result
-        except Exception as exc:
-            error = f"{type(exc).__name__}: {exc}"
-            raise
-        finally:
-            _log.info(
-                EventName.AGENT_RUN,
-                phase="end",
-                duration_ms=int((time.monotonic() - start) * 1000),
-                success=success,
-                error=error,
-            )
+        # The ``agent.run`` start marker is additive; a logging failure here
+        # must not prevent the turn from executing.
+        with contextlib.suppress(Exception):
+            _log.info(EventName.AGENT_RUN, phase="start")
+        async with measure_and_log(_log, EventName.AGENT_RUN, phase="end"):
+            return await self._run_impl(user_input)
 
     async def _run_impl(self, user_input: str) -> LLMResponse:
         self.user_message_count += 1

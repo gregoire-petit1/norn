@@ -117,8 +117,72 @@ async def test_llm_provider_emits_llm_complete_on_error(log_dir: Path) -> None:
         if e.get("event") == "llm.complete" and e.get("error_type") == "RuntimeError"
     ]
     assert len(err_events) == 1
-    assert err_events[0]["error"] == "boom"
-    assert err_events[0]["level"] == "error"
+    ev = err_events[0]
+    assert ev["error_type"] == "RuntimeError"
+    assert "boom" in ev["error_message"]
+    # Harmonized schema: the conflated ``error`` field is dropped.
+    assert "error" not in ev
+    assert ev["level"] == "error"
+    assert ev["success"] is False
+
+
+@pytest.mark.asyncio
+async def test_llm_provider_handles_missing_usage(log_dir: Path) -> None:
+    """Providers that omit usage (some Ollama configs) must not crash."""
+    from norn.core.llm import LiteLLMProvider
+    from norn.core.models import Message, Role
+
+    fake_response = MagicMock()
+    fake_response.choices = [
+        MagicMock(
+            message=MagicMock(content="hi", tool_calls=None),
+            finish_reason="stop",
+        ),
+    ]
+    fake_response.usage = None  # provider didn't report usage
+
+    with patch("litellm.acompletion", new=AsyncMock(return_value=fake_response)):
+        provider = LiteLLMProvider(model="ollama/llama3")
+        result = await provider.complete(messages=[Message(role=Role.USER, content="hi")])
+
+    # No crash, zeroed tokens.
+    assert result.usage is not None
+    assert result.usage.prompt_tokens == 0
+    assert result.usage.completion_tokens == 0
+    assert result.usage.total_tokens == 0
+
+    events = _events(_today_file(log_dir))
+    llm_events = [e for e in events if e.get("event") == "llm.complete"]
+    assert len(llm_events) == 1
+    ev = llm_events[0]
+    assert ev["prompt_tokens"] == 0
+    assert ev["completion_tokens"] == 0
+    assert ev["total_tokens"] == 0
+
+
+@pytest.mark.asyncio
+async def test_llm_provider_handles_empty_choices(log_dir: Path) -> None:
+    """Empty response.choices (malformed mocks, provider refusal) must not crash."""
+    from norn.core.llm import LiteLLMProvider
+    from norn.core.models import Message, Role
+
+    fake_response = MagicMock()
+    fake_response.choices = []
+    fake_response.usage = MagicMock(prompt_tokens=0, completion_tokens=0, total_tokens=0)
+
+    with patch("litellm.acompletion", new=AsyncMock(return_value=fake_response)):
+        provider = LiteLLMProvider(model="gpt-4")
+        # Must not raise IndexError.
+        result = await provider.complete(messages=[Message(role=Role.USER, content="hi")])
+
+    assert result.content is None or result.content == ""
+    assert result.tool_calls == []
+
+    events = _events(_today_file(log_dir))
+    llm_events = [e for e in events if e.get("event") == "llm.complete"]
+    assert len(llm_events) == 1
+    # finish_reason is None when there are no choices.
+    assert llm_events[0].get("finish_reason") is None
 
 
 # --------------------------------------------------------------------------- #
@@ -267,4 +331,76 @@ async def test_agent_run_records_failure(log_dir: Path) -> None:
     assert len(end_events) == 1
     ev = end_events[0]
     assert ev["success"] is False
-    assert "RuntimeError" in ev["error"]
+    assert ev["error_type"] == "RuntimeError"
+    assert "llm exploded" in ev["error_message"]
+    # Harmonized schema: the conflated ``error`` field is dropped.
+    assert "error" not in ev
+
+
+@pytest.mark.asyncio
+async def test_router_propagates_tier_to_llm_complete(log_dir: Path) -> None:
+    """B1 regression: tier bound via contextvars must surface in llm.complete."""
+    from norn.core.config import RouterConfig, RouterTierConfig
+    from norn.core.models import Message, Role
+    from norn.core.router import RouterProvider, Tier
+
+    fake_response = MagicMock()
+    fake_response.choices = [
+        MagicMock(
+            message=MagicMock(content="hi", tool_calls=None),
+            finish_reason="stop",
+        ),
+    ]
+    fake_response.usage = MagicMock(prompt_tokens=1, completion_tokens=1, total_tokens=2)
+
+    cfg = RouterConfig(
+        tiers={"fast": RouterTierConfig(provider="openai", model="model-fast")},
+    )
+    router = RouterProvider(cfg)
+
+    with patch("litellm.acompletion", new=AsyncMock(return_value=fake_response)):
+        await router.complete(
+            messages=[Message(role=Role.USER, content="hi")],
+            tier_override=Tier.FAST,
+        )
+
+    events = _events(_today_file(log_dir))
+    llm_events = [e for e in events if e.get("event") == "llm.complete"]
+    assert len(llm_events) == 1
+    assert llm_events[0].get("tier") == "fast", (
+        "tier contextvar did not propagate to nested llm.complete — "
+        "missing merge_contextvars processor?"
+    )
+
+
+@pytest.mark.asyncio
+async def test_logging_failure_does_not_crash_agent_run(log_dir: Path) -> None:
+    """B4 regression: observability emissions must be fail-open."""
+    from norn.core.models import LLMResponse, TokenUsage
+
+    agent = _make_agent(LLMResponse(content="done", usage=TokenUsage()))
+
+    # Patch the lifecycle helper's internal logger call to raise on every
+    # emission. The agent.run must still return the expected response.
+    with patch(
+        "norn.observability.lifecycle._emit",
+        side_effect=OSError("disk full"),
+    ):
+        result = await agent.run("hello")
+
+    assert result.content == "done"
+
+
+@pytest.mark.asyncio
+async def test_logging_failure_does_not_mask_agent_run_exception(log_dir: Path) -> None:
+    """B4 regression: fail-open logging must still re-raise the real error."""
+    agent = _make_agent(RuntimeError("llm exploded"))
+
+    with (
+        patch(
+            "norn.observability.lifecycle._emit",
+            side_effect=OSError("disk full"),
+        ),
+        pytest.raises(RuntimeError, match="llm exploded"),
+    ):
+        await agent.run("hello")
