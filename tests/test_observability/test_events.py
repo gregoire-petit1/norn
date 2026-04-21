@@ -15,3 +15,10 @@ def test_event_names_stable():
 def test_event_name_is_str():
     assert isinstance(EventName.AGENT_RUN, str)
     assert EventName.AGENT_RUN.value == "agent.run"
+
+
+def test_event_names_unique():
+    """Guards against accidental duplicate string values on the stable contract."""
+    values = [e.value for e in EventName]
+    assert len(values) == len(set(values))
+    assert len(values) == 6

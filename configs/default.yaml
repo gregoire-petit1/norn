@@ -51,4 +51,9 @@ logging:
   output: "both"         # console | file | both
   file_dir: "~/.norn/logs"
   include_cost: true
+  redact_keys:           # keys whose values are masked in logs
+    - "api_key"
+    - "authorization"
+    - "token"
+    - "password"
 
