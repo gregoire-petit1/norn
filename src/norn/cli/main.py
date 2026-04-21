@@ -18,6 +18,7 @@ from rich.prompt import Confirm, Prompt
 from norn.core.agent import AgentLoop
 from norn.core.config import NornConfig
 from norn.core.llm import LiteLLMProvider
+from norn.core.router import RouterProvider, Tier
 from norn.flags.registry import FeatureFlag, FeatureFlagRegistry
 from norn.permissions.checker import PermissionChecker
 from norn.permissions.classifier import RiskClassifier
@@ -68,8 +69,30 @@ def _build_registry(flag_registry: FeatureFlagRegistry | None = None) -> ToolReg
     return registry
 
 
-def _build_provider(config: NornConfig) -> LiteLLMProvider:
-    """Build the LLM provider from config."""
+def _build_provider(
+    config: NornConfig, model_override: str | None = None
+) -> LiteLLMProvider | RouterProvider:
+    """Build the LLM provider from config.
+
+    If `config.router.enabled`, returns a `RouterProvider` (3-tier routing with fallback);
+    otherwise returns a `LiteLLMProvider` using the legacy `config.llm` block.
+
+    `model_override` (e.g. "fast", "standard", "powerful") forces the router's default tier
+    when the router is enabled. Ignored otherwise.
+    """
+    if config.router.enabled:
+        default_tier: Tier | None = None
+        if model_override is not None:
+            try:
+                default_tier = Tier(model_override)
+            except ValueError:
+                console.print(
+                    f"[yellow]Unknown tier '{model_override}'. "
+                    f"Valid: fast, standard, powerful. Ignoring.[/yellow]"
+                )
+        return RouterProvider(config.router, default_tier=default_tier)
+
+    # Legacy single-provider path
     model = config.llm.model
     if config.llm.provider == "ollama":
         model = f"ollama/{config.llm.model}"
@@ -150,13 +173,17 @@ def _load_mcp_adapters(config: NornConfig, flag_registry: FeatureFlagRegistry) -
 
 
 @app.command()
-def chat() -> None:
+def chat(
+    model: str | None = typer.Option(
+        None, "--model", help="Force routing tier: fast, standard, or powerful (router mode only)"
+    ),
+) -> None:
     """Start an interactive chat session."""
     config = NornConfig.load()
     config.apply_env_overrides()
 
     flag_registry = _build_flag_registry(config)
-    provider = _build_provider(config)
+    provider = _build_provider(config, model_override=model)
     registry = _build_registry(flag_registry)
     # Load MCP adapters and inject into registry
     for adapter in _load_mcp_adapters(config, flag_registry):
@@ -212,13 +239,18 @@ def chat() -> None:
 
 
 @app.command()
-def run(prompt: str = typer.Argument(help="One-shot prompt to execute")) -> None:
+def run(
+    prompt: str = typer.Argument(help="One-shot prompt to execute"),
+    model: str | None = typer.Option(
+        None, "--model", help="Force routing tier: fast, standard, or powerful (router mode only)"
+    ),
+) -> None:
     """Run a one-shot prompt and exit."""
     config = NornConfig.load()
     config.apply_env_overrides()
 
     flag_registry = _build_flag_registry(config)
-    provider = _build_provider(config)
+    provider = _build_provider(config, model_override=model)
     registry = _build_registry(flag_registry)
     # Load MCP adapters and inject into registry
     for adapter in _load_mcp_adapters(config, flag_registry):
@@ -239,7 +271,11 @@ def run(prompt: str = typer.Argument(help="One-shot prompt to execute")) -> None
 
 
 @app.command()
-def dream() -> None:
+def dream(
+    model: str | None = typer.Option(
+        None, "--model", help="Force routing tier: fast, standard, or powerful (router mode only)"
+    ),
+) -> None:
     """Manually trigger a memory consolidation dream."""
     config = NornConfig.load()
     config.apply_env_overrides()
@@ -249,7 +285,7 @@ def dream() -> None:
         console.print("[yellow]Memory system is disabled.[/yellow]")
         raise typer.Exit(1)
 
-    provider = _build_provider(config)
+    provider = _build_provider(config, model_override=model)
 
     from norn.dream.engine import DreamEngine
 
@@ -271,7 +307,12 @@ def dream() -> None:
 
 
 @app.command()
-def coordinate(prompt: str = typer.Argument(help="Task to coordinate")) -> None:
+def coordinate(
+    prompt: str = typer.Argument(help="Task to coordinate"),
+    model: str | None = typer.Option(
+        None, "--model", help="Force routing tier: fast, standard, or powerful (router mode only)"
+    ),
+) -> None:
     """Run a task using multi-agent coordinator mode."""
     config = NornConfig.load()
     config.apply_env_overrides()
@@ -283,7 +324,7 @@ def coordinate(prompt: str = typer.Argument(help="Task to coordinate")) -> None:
         )
         raise typer.Exit(1)
 
-    provider = _build_provider(config)
+    provider = _build_provider(config, model_override=model)
     flag_registry = _build_flag_registry(config)
     registry = _build_registry(flag_registry)
     # Load MCP adapters and inject into registry
