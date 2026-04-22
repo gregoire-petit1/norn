@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import time
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable
 
 from norn.core.models import LLMResponse, Message, Role, ToolCall
 from norn.observability import EventName, get_logger, measure_and_log
@@ -16,6 +16,9 @@ if TYPE_CHECKING:
     from norn.memory.store import MemoryStore
     from norn.permissions.checker import PermissionChecker
     from norn.tools.registry import ToolRegistry
+
+# Callback type: (tool_name, args_summary, duration_ms, success) -> None
+ToolProgressCallback = Callable[[str, str, int, bool], None]
 
 
 _log = get_logger(__name__)
@@ -35,6 +38,7 @@ class AgentLoop:
         permission_checker: PermissionChecker | None = None,
         memory_store: MemoryStore | None = None,
         session_logger: SessionLogger | None = None,
+        on_tool_progress: ToolProgressCallback | None = None,
     ) -> None:
         self.llm = llm
         self.registry = registry
@@ -44,6 +48,7 @@ class AgentLoop:
         self.permission_checker = permission_checker
         self.memory_store = memory_store
         self.session_logger = session_logger
+        self._on_tool_progress = on_tool_progress
         # Session stats
         self.user_message_count = 0
         self.tool_call_count = 0
@@ -127,9 +132,10 @@ class AgentLoop:
         """
         start = time.monotonic()
         result = await self._execute_tool_inner(call)
+        duration_ms = int((time.monotonic() - start) * 1000)
         payload: dict[str, object] = {
             "tool_name": call.name,
-            "duration_ms": int((time.monotonic() - start) * 1000),
+            "duration_ms": duration_ms,
             "success": result.error is None,
         }
         if result.error is not None:
@@ -140,7 +146,32 @@ class AgentLoop:
                 _log.info(EventName.TOOL_CALL, **payload)
             else:
                 _log.error(EventName.TOOL_CALL, **payload)
+        # Notify CLI progress callback
+        if self._on_tool_progress is not None:
+            with contextlib.suppress(Exception):
+                args_summary = self._summarize_tool_args(call)
+                self._on_tool_progress(call.name, args_summary, duration_ms, result.error is None)
         return result
+
+    @staticmethod
+    def _summarize_tool_args(call: ToolCall) -> str:
+        """Produce a short summary of tool arguments for display."""
+        args = call.arguments
+        # Common patterns: bash has "command", file tools have "path"
+        if "command" in args:
+            cmd = str(args["command"])
+            return cmd[:60] + ("..." if len(cmd) > 60 else "")
+        if "path" in args:
+            return str(args["path"])
+        if "file_path" in args:
+            return str(args["file_path"])
+        if "pattern" in args:
+            return str(args["pattern"])
+        # Fallback: first string arg value
+        for v in args.values():
+            if isinstance(v, str):
+                return v[:50] + ("..." if len(str(v)) > 50 else "")
+        return ""
 
     async def _execute_tool_inner(self, call: ToolCall) -> ToolResult:
         """Core tool resolution + invocation. Never raises; returns ToolResult."""

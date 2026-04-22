@@ -12,8 +12,17 @@ from typing import TextIO
 import structlog
 
 
-def build_console_handler(shared_processors: list) -> logging.Handler:
-    """Colored rich-style console handler for dev ergonomics."""
+def build_console_handler(
+    shared_processors: list,
+    *,
+    level: int | None = None,
+) -> logging.Handler:
+    """Colored rich-style console handler for dev ergonomics.
+
+    When ``level`` is given the handler's own filter is set independently of
+    the root logger level. This lets normal mode show only WARNING+ on the
+    console while the file sink still captures everything at INFO.
+    """
     formatter = structlog.stdlib.ProcessorFormatter(
         foreign_pre_chain=shared_processors,
         processors=[
@@ -23,6 +32,8 @@ def build_console_handler(shared_processors: list) -> logging.Handler:
     )
     handler = logging.StreamHandler(stream=sys.stderr)
     handler.setFormatter(formatter)
+    if level is not None:
+        handler.setLevel(level)
     return handler
 
 

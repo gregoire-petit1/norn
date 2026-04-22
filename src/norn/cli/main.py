@@ -208,6 +208,36 @@ VerboseOption = Annotated[
 ]
 
 
+def _print_metrics(response: LLMResponse) -> None:
+    """Print a dim metrics line below the response."""
+    parts: list[str] = []
+    if response.latency_ms is not None:
+        parts.append(f"{response.latency_ms / 1000:.1f}s")
+    if response.usage is not None:
+        parts.append(
+            f"{response.usage.prompt_tokens}\u2192{response.usage.completion_tokens} tokens"
+        )
+    if response.model:
+        parts.append(response.model)
+    if parts:
+        sep = " \u2502 "
+        console.print(f"  \u23f1 {sep.join(parts)}", style="dim")
+
+
+def _make_tool_progress() -> None:
+    """Print a dim tool progress line."""
+
+    def _callback(tool_name: str, args_summary: str, duration_ms: int, success: bool) -> None:
+        status = "" if success else " [red]FAIL[/red]"
+        suffix = f": {args_summary}" if args_summary else ""
+        console.print(
+            f"  [tool] {tool_name}{suffix} ({duration_ms / 1000:.1f}s){status}",
+            style="dim",
+        )
+
+    return _callback
+
+
 @app.command()
 def chat(model: ModelOption = None, verbose: VerboseOption = False) -> None:
     """Start an interactive chat session."""
@@ -232,6 +262,7 @@ def chat(model: ModelOption = None, verbose: VerboseOption = False) -> None:
         permission_checker=checker,
         memory_store=memory_store,
         session_logger=session_logger,
+        on_tool_progress=_make_tool_progress(),
     )
 
     console.print("[bold]Norn[/bold] - the coding agent that weaves your destiny")
@@ -254,11 +285,12 @@ def chat(model: ModelOption = None, verbose: VerboseOption = False) -> None:
                 continue
 
             try:
-                with console.status("[dim]Thinking...[/dim]"):
-                    response = await agent.run(user_input)
+                console.print("[dim]Thinking...[/dim]")
+                response = await agent.run(user_input)
 
                 if response.content:
                     console.print(Markdown(response.content))
+                _print_metrics(response)
                 console.print()
 
             except KeyboardInterrupt:
@@ -297,12 +329,14 @@ def run(
         permission_checker=checker,
         memory_store=memory_store,
         session_logger=session_logger,
+        on_tool_progress=_make_tool_progress(),
     )
 
     async def _run_once() -> None:
         response = await agent.run(prompt)
         if response.content:
             console.print(Markdown(response.content))
+        _print_metrics(response)
 
     asyncio.run(_run_once())
 

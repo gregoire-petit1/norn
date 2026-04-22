@@ -8,6 +8,8 @@ from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Awaitable, Callable
 
+import logging as _stdlib_logging
+
 import litellm
 
 from norn.core.models import (
@@ -194,6 +196,7 @@ class LiteLLMProvider:
         self._prompt_cache = prompt_cache and _supports_prompt_cache(model)
         # Suppress litellm logging noise
         litellm.suppress_debug_info = True
+        _stdlib_logging.getLogger("LiteLLM").setLevel(_stdlib_logging.WARNING)
 
     async def complete(
         self,
@@ -242,6 +245,7 @@ class LiteLLMProvider:
             model=self.model,
         ) as event:
             completion = self._completion_fn or litellm.acompletion
+            _start = __import__("time").monotonic()
             response = await completion(**kwargs)
 
             # Guard against malformed / minimal responses:
@@ -278,10 +282,13 @@ class LiteLLMProvider:
 
             content = choice.message.content if choice is not None else None
             tool_calls = _parse_tool_calls(choice.message.tool_calls) if choice is not None else []
+            _elapsed_ms = int((__import__("time").monotonic() - _start) * 1000)
             return LLMResponse(
                 content=content,
                 tool_calls=tool_calls,
                 usage=token_usage,
+                latency_ms=_elapsed_ms,
+                model=self.model,
             )
 
     async def stream(

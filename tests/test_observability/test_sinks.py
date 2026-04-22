@@ -86,7 +86,7 @@ def test_file_sink_expanduser(tmp_path, monkeypatch):
 
 def test_console_sink_captures_event(capfd, tmp_path):
     cfg = LoggingConfig(enabled=True, output="console", file_dir=str(tmp_path))
-    init_logging(cfg)
+    init_logging(cfg, cli_level_override="DEBUG")
     new_session()
     get_logger("test").info("tool.call", tool_name="read_file")
     out = capfd.readouterr()
@@ -97,7 +97,7 @@ def test_console_sink_captures_event(capfd, tmp_path):
 
 def test_both_output_writes_to_file_and_console(capfd, tmp_path):
     cfg = LoggingConfig(enabled=True, output="both", file_dir=str(tmp_path))
-    init_logging(cfg)
+    init_logging(cfg, cli_level_override="DEBUG")
     new_session()
     get_logger("test").info("agent.run", phase="end")
 

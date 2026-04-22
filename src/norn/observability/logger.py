@@ -61,6 +61,11 @@ def init_logging(config: LoggingConfig, cli_level_override: str | None = None) -
 
     Idempotent: safe to call multiple times; subsequent calls replace handlers.
     If config.enabled is False, logging is silenced (no handlers attached).
+
+    Console noise control: when no ``cli_level_override`` is given (normal
+    mode), the console handler is raised to WARNING so the user only sees
+    errors and the file sink captures everything at INFO. ``--verbose``
+    forces the console back to DEBUG for developer use.
     """
     # Avoid duplicate handler registration on re-init
     root = logging.getLogger()
@@ -121,6 +126,10 @@ def init_logging(config: LoggingConfig, cli_level_override: str | None = None) -
 
     # Attach sinks
     if config.output in {"console", "both"}:
-        root.addHandler(build_console_handler(shared_processors))
+        # In normal mode (no --verbose), suppress INFO/DEBUG on the console
+        # so the user only sees the response + metrics. File sink still
+        # captures everything at the resolved level.
+        console_level = None if cli_level_override else logging.WARNING
+        root.addHandler(build_console_handler(shared_processors, level=console_level))
     if config.output in {"file", "both"}:
         root.addHandler(build_file_handler(config.file_dir, shared_processors))

@@ -48,6 +48,8 @@ class LLMResponse(BaseModel):
     content: str | None = None
     tool_calls: list[ToolCall] = []
     usage: TokenUsage | None = None
+    latency_ms: int | None = None
+    model: str | None = None
 
     @computed_field
     @property
