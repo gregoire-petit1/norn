@@ -1,0 +1,14 @@
+id: "code-gen-002-fizzbuzz"
+category: "code-gen"
+description: "Implement FizzBuzz as a generator"
+prompt: |
+  In src/solution.py, implement a generator function `fizzbuzz(n: int)` that
+  yields strings for numbers 1 through n: "Fizz" for multiples of 3,
+  "Buzz" for multiples of 5, "FizzBuzz" for multiples of both, otherwise
+  the number as a string. All tests must pass.
+seed_dir: "seed/"
+eval_command: "uv run pytest tests/ -v"
+timeout_seconds: 120
+metadata:
+  difficulty: "easy"
+  tags: ["generator", "classic"]

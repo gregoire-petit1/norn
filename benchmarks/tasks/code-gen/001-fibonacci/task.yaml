@@ -1,0 +1,13 @@
+id: "code-gen-001-fibonacci"
+category: "code-gen"
+description: "Implement an iterative Fibonacci function"
+prompt: |
+  In the file src/solution.py, implement a function `fib(n: int) -> int`
+  that returns the n-th Fibonacci number (0-indexed: fib(0)=0, fib(1)=1).
+  Use an iterative approach. All tests in tests/test_solution.py must pass.
+seed_dir: "seed/"
+eval_command: "uv run pytest tests/ -v"
+timeout_seconds: 120
+metadata:
+  difficulty: "easy"
+  tags: ["iterative", "math"]

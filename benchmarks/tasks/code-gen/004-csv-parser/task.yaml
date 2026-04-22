@@ -1,0 +1,13 @@
+id: "code-gen-004-csv-parser"
+category: "code-gen"
+description: "Implement a simple CSV parser"
+prompt: |
+  In src/solution.py, implement `parse_csv(text: str) -> list[dict[str, str]]`
+  that parses CSV text (with header row) into a list of dicts.
+  Handle quoted fields containing commas. All tests must pass.
+seed_dir: "seed/"
+eval_command: "uv run pytest tests/ -v"
+timeout_seconds: 180
+metadata:
+  difficulty: "medium"
+  tags: ["parsing", "string-processing"]

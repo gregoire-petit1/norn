@@ -1,0 +1,15 @@
+id: "code-gen-003-lru-cache-class"
+category: "code-gen"
+description: "Implement an LRU cache class"
+prompt: |
+  In src/solution.py, implement an `LRUCache` class with:
+  - `__init__(self, capacity: int)` — max number of items
+  - `get(self, key: str) -> int | None` — return value or None if not found
+  - `put(self, key: str, value: int) -> None` — insert/update, evict LRU if over capacity
+  All tests must pass. Do not use functools.lru_cache.
+seed_dir: "seed/"
+eval_command: "uv run pytest tests/ -v"
+timeout_seconds: 180
+metadata:
+  difficulty: "medium"
+  tags: ["data-structure", "oop"]
