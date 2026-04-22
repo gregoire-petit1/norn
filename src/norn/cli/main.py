@@ -16,6 +16,7 @@ from rich.console import Console
 from rich.markdown import Markdown
 from rich.prompt import Confirm, Prompt
 
+from norn.cli.bench import bench_app
 from norn.cli.logs import logs_app
 from norn.core.agent import AgentLoop
 from norn.core.config import NornConfig
@@ -48,6 +49,7 @@ from norn.tools.web.web_fetch import WebFetchTool
 from norn.tools.web.web_search import WebSearchTool
 
 app = typer.Typer(name="norn", help="Norn - the coding agent that weaves your destiny")
+app.add_typer(bench_app, name="bench")
 app.add_typer(logs_app, name="logs")
 console = Console()
 
