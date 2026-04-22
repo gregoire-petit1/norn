@@ -1,0 +1,13 @@
+id: "bug-fix-003-broad-except-swallow"
+category: "bug-fix"
+description: "Fix broad except clause that swallows errors"
+prompt: |
+  The function `safe_divide` in src/solution.py uses a bare `except` that
+  swallows ALL exceptions, including TypeError. Fix it to only catch
+  ZeroDivisionError, and let other exceptions propagate. All tests must pass.
+seed_dir: "seed/"
+eval_command: "uv run pytest tests/ -v"
+timeout_seconds: 120
+metadata:
+  difficulty: "easy"
+  tags: ["exception-handling", "code-quality"]

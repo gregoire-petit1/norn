@@ -1,0 +1,12 @@
+id: "bug-fix-001-off-by-one"
+category: "bug-fix"
+description: "Fix off-by-one error in pagination"
+prompt: |
+  The function `paginate` in src/solution.py has an off-by-one bug.
+  Fix it so all tests pass. Do not change the tests.
+seed_dir: "seed/"
+eval_command: "uv run pytest tests/ -v"
+timeout_seconds: 120
+metadata:
+  difficulty: "easy"
+  tags: ["off-by-one", "pagination"]

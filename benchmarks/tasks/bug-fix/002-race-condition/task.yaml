@@ -1,0 +1,13 @@
+id: "bug-fix-002-race-condition"
+category: "bug-fix"
+description: "Fix race condition in thread-safe counter"
+prompt: |
+  The `Counter` class in src/solution.py has a race condition when
+  incrementing from multiple threads. Fix it using proper synchronization.
+  All tests must pass.
+seed_dir: "seed/"
+eval_command: "uv run pytest tests/ -v"
+timeout_seconds: 120
+metadata:
+  difficulty: "medium"
+  tags: ["threading", "concurrency"]
