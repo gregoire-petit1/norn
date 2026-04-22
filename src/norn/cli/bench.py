@@ -216,7 +216,8 @@ def bench_run(
     except Exception:
         git_sha = "unknown"
 
-    config_overrides: dict = {"permissions": {"mode": "strict"}}
+    # Use 'auto' mode: LOW/MEDIUM auto-approved, HIGH denied (no TTY in subprocess)
+    config_overrides: dict = {"permissions": {"mode": "auto"}}
     if model:
         config_overrides["llm"] = {"model": model}
 
