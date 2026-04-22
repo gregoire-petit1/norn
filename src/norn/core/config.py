@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 from enum import StrEnum
 from pathlib import Path
@@ -130,3 +131,22 @@ class NornConfig(BaseModel):
                     {**section_obj.model_dump(), field: value}
                 )
                 setattr(self, section, validated)
+
+        # Generic JSON overrides via NORN_CONFIG_OVERRIDES
+        raw = os.environ.get("NORN_CONFIG_OVERRIDES")
+        if raw:
+            try:
+                overrides = json.loads(raw)
+            except (json.JSONDecodeError, ValueError):
+                return
+            if isinstance(overrides, dict):
+                current = self.model_dump()
+                for key, val in overrides.items():
+                    if key in current and isinstance(current[key], dict) and isinstance(val, dict):
+                        current[key] = {**current[key], **val}
+                    else:
+                        current[key] = val
+                merged = type(self).model_validate(current)
+                for key in overrides:
+                    if hasattr(merged, key):
+                        setattr(self, key, getattr(merged, key))

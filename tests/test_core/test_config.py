@@ -154,10 +154,37 @@ def test_llm_prompt_cache_can_be_disabled_via_yaml(tmp_path):
     """YAML can disable prompt cache explicitly."""
     config_file = tmp_path / "config.yaml"
     config_file.write_text(
-        "llm:\n"
-        "  provider: anthropic\n"
-        "  model: anthropic/claude-sonnet-4\n"
-        "  prompt_cache: false\n"
+        "llm:\n  provider: anthropic\n  model: anthropic/claude-sonnet-4\n  prompt_cache: false\n"
     )
     config = NornConfig.from_yaml(config_file)
     assert config.llm.prompt_cache is False
+
+
+# --------------------------------------------------------------------------- #
+# NORN_CONFIG_OVERRIDES env var
+# --------------------------------------------------------------------------- #
+
+
+def test_config_overrides_from_env(monkeypatch):
+    """NORN_CONFIG_OVERRIDES JSON merges nested fields into config."""
+    import json
+
+    overrides = {
+        "logging": {"file_dir": "/tmp/test", "output": "file"},
+        "permissions": {"mode": "strict"},
+    }
+    monkeypatch.setenv("NORN_CONFIG_OVERRIDES", json.dumps(overrides))
+    config = NornConfig()
+    config.apply_env_overrides()
+    assert config.logging.file_dir == "/tmp/test"
+    assert config.logging.output == "file"
+    assert config.permissions.mode == PermissionMode.STRICT
+
+
+def test_config_overrides_invalid_json_ignored(monkeypatch):
+    """Malformed JSON in NORN_CONFIG_OVERRIDES must not raise."""
+    monkeypatch.setenv("NORN_CONFIG_OVERRIDES", "not-json{{{")
+    config = NornConfig()
+    config.apply_env_overrides()
+    # Defaults unchanged
+    assert config.permissions.mode == PermissionMode.INTERACTIVE
