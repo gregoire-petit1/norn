@@ -90,10 +90,13 @@ class TaskResult(BaseModel):
 
     task_id: str
     success: bool = False
+    binary_pass: bool = False
     timed_out: bool = False
     latency_ms: int = 0
     trace: ExecutionTrace = Field(default_factory=ExecutionTrace)
     judge_score: JudgeScore | None = None
+    eval_returncode: int = -1
+    eval_stdout: str = ""
     error: str | None = None
 
     @classmethod
