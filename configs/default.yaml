@@ -1,9 +1,9 @@
 # configs/default.yaml
 llm:
-  provider: "openrouter"
-  model: "stepfun/step-3.5-flash:free"
+  provider: "ollama"
+  model: "qwen3-coder:480b-cloud"
   fallback_provider: "openrouter"
-  fallback_model: "nvidia/nemotron-3-super-120b-a12b:free"
+  fallback_model: "qwen/qwen3-coder:free"
   # Verified free OpenRouter models with tool support:
   #   stepfun/step-3.5-flash:free             (StepFun, 256k ctx, reasoning, TESTED OK)
   #   nvidia/nemotron-3-super-120b-a12b:free  (Nvidia, 262k ctx, fast)
