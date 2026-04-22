@@ -1,0 +1,13 @@
+id: "refactor-001-long-function-split"
+category: "refactor"
+description: "Split a long function into smaller, focused functions"
+prompt: |
+  The function `process_order` in src/solution.py is too long (60+ lines).
+  Refactor it into smaller, well-named helper functions. The existing tests
+  must continue to pass. Improve readability without changing behavior.
+seed_dir: "seed/"
+eval_command: "uv run pytest tests/ -v"
+timeout_seconds: 300
+metadata:
+  difficulty: "medium"
+  tags: ["refactor", "clean-code"]

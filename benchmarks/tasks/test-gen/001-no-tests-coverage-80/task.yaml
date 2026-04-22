@@ -1,0 +1,13 @@
+id: "test-gen-001-no-tests-coverage-80"
+category: "test-gen"
+description: "Write tests to achieve 80% coverage on untested module"
+prompt: |
+  The module src/solution.py has a Stack class with no tests.
+  Write comprehensive tests in tests/test_solution.py to achieve at
+  least 80% line coverage. Cover normal operations and edge cases.
+seed_dir: "seed/"
+eval_command: "uv run pytest tests/ -v --tb=short"
+timeout_seconds: 180
+metadata:
+  difficulty: "easy"
+  tags: ["testing", "coverage"]

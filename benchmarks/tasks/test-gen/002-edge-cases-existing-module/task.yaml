@@ -1,0 +1,13 @@
+id: "test-gen-002-edge-cases-existing-module"
+category: "test-gen"
+description: "Add edge-case tests to an existing test suite"
+prompt: |
+  The module src/solution.py has a `RangeValidator` class with some basic
+  tests. Add edge-case tests to tests/test_solution.py to cover boundary
+  conditions, error cases, and unusual inputs. Keep existing tests passing.
+seed_dir: "seed/"
+eval_command: "uv run pytest tests/ -v --tb=short"
+timeout_seconds: 180
+metadata:
+  difficulty: "medium"
+  tags: ["testing", "edge-cases"]

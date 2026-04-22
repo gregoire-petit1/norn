@@ -1,0 +1,13 @@
+id: "refactor-002-god-class-decompose"
+category: "refactor"
+description: "Decompose a god class into focused classes"
+prompt: |
+  The `UserManager` class in src/solution.py is a god class handling
+  validation, storage, and formatting. Decompose it into smaller classes
+  with clear responsibilities while keeping all tests passing.
+seed_dir: "seed/"
+eval_command: "uv run pytest tests/ -v"
+timeout_seconds: 300
+metadata:
+  difficulty: "hard"
+  tags: ["refactor", "solid", "oop"]
