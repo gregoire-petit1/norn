@@ -218,31 +218,133 @@ the full request/response.
 
 ### Tier 3 — Advanced (higher effort, specialized gains)
 
-#### 4.7 Diff-Based File Context
+#### 4.7 Repo Map (Tree-Sitter AST-Based Context)
 
-**What:** Instead of sending full files, send only diffs or AST-extracted
-snippets (functions, classes). Use tree-sitter to build a "repo map" of
-the project.
+**What:** Generate a condensed map of the codebase — file tree with
+function/class signatures and line numbers — instead of sending full
+files. The agent sees the "shape" of the code and requests specific
+function bodies on demand.
 
-**Savings:** 70–90% vs full file content.
+**Savings:** 70–90% vs full file content. A 2000-token module becomes a
+~200-token signature block.
 
-**Complexity:** Medium-High (tree-sitter integration).
+**Complexity:** Medium.
+
+**Prior art:**
+- **Aider** (Paul Gauthier, 43.7k stars): pioneered the "repo-map"
+  concept. Uses tree-sitter to parse all project files, extracts
+  function/class definitions, and injects a condensed map into context.
+  This is Aider's single most important context optimization. See
+  https://aider.chat/docs/repomap.html
+- **Repomix** (yamadashy, 23.7k stars): packs an entire repo into a
+  single XML/MD/JSON file with tree-sitter compression. More of a
+  one-shot dump; less suitable for incremental agent use.
+  https://github.com/yamadashy/repomix
+- **rendergit** (Karpathy, 2.2k stars): renders a repo into a single
+  HTML page for LLM consumption. Simpler approach, no AST parsing.
+  https://github.com/karpathy/rendergit
+
+**Implementation for Norn:**
+- tree-sitter parsing for Python and TypeScript (primary languages)
+- Build map: `file_path → [(symbol_type, name, line_start, line_end, signature)]`
+- Output format optimized for LLM consumption (ACI principle):
+  ```
+  src/norn/core/agent.py (23 symbols)
+    class NornAgent(BaseAgent):              L12–L95
+      async def run(self, user_input: str)   L60–L67
+      async def _run_impl(self, ...)         L69–L95
+    MAX_TOOL_ROUNDS = 10                     L10
+  ```
+- Incremental update: rebuild only files with mtime changes (same
+  pattern as Phase 10 obsidian index)
+- Cache map in `~/.norn/cache/repo_map.json` per project
+- Inject condensed map into system prompt or as first context message
+- On-demand expansion: when agent needs details, `file_read` with line
+  range returns only the relevant function body
+
+**Config:**
+```yaml
+context:
+  repo_map: true               # enable/disable
+  repo_map_languages:          # tree-sitter grammars to load
+    - python
+    - typescript
+  repo_map_max_tokens: 2000    # cap map size
+  repo_map_exclude:            # patterns to skip
+    - "tests/**"
+    - "docs/**"
+    - ".venv/**"
+```
+
+**Files touched:** `src/norn/core/repo_map.py` (new),
+`src/norn/core/agent.py`, `configs/default.yaml`.
+
+**Dependencies:** `tree-sitter>=0.23`, `tree-sitter-python`,
+`tree-sitter-typescript` as optional extras.
+
+#### 4.8 OpenEvolve — Evolutionary Prompt & Config Optimization
+
+**What:** Use evolutionary search (LLM-as-mutator) to automatically
+optimize Norn's system prompts, tool schemas, and configuration
+parameters. Instead of hand-tuning, let a population of prompt variants
+compete on a fitness function (benchmark score, token efficiency, task
+success rate).
+
+**This is NOT a runtime optimization** — it's an offline meta-optimization
+loop that produces better static artifacts (prompts, schemas, configs)
+that Norn then uses at runtime.
+
+**Savings:** Indirect but compounding. OpenEvolve has demonstrated +23%
+accuracy on prompt optimization tasks (HotpotQA benchmark).
+
+**Complexity:** Medium-High.
+
+**Prior art:**
+- **OpenEvolve** (Asankhaya Sharma, 6.1k stars): open-source
+  implementation of Google DeepMind's AlphaEvolve. Uses MAP-Elites
+  (quality-diversity grid) + island-based parallel populations + LLM
+  ensemble for mutation. `pip install openevolve`.
+  https://github.com/algorithmicsuperintelligence/openevolve
+- **ADAS** (Hu, Lu, Clune, 2024, arXiv:2408.08435): Automated Design
+  of Agentic Systems — meta-agent that programs new agent architectures.
+- **Meta-Harness** (Stanford, March 2026): end-to-end optimization of
+  model harnesses. Referenced in Norn architecture doc.
+
+**What to evolve in Norn:**
+1. **System prompt** — compress without quality loss, find optimal
+   phrasing per model family
+2. **Tool descriptions** — find minimal descriptions that preserve
+   correct tool selection
+3. **Config parameters** — `max_tool_rounds`, `temperature`,
+   `max_tokens`, context window thresholds
+4. **Tool selection heuristics** — keyword→tool mappings (see 4.5)
 
 **Implementation:**
-- tree-sitter parsing for Python/TypeScript → extract function/class
-  signatures
-- Repo map: file → [function signatures with line numbers]
-- Send repo map (~200 tokens for a module) instead of full file
-  (~2000+ tokens)
-- On-demand: when agent requests details, send specific function body
+- Define a fitness function using Phase 11 benchmark:
+  `score = task_success_rate * 100 - prompt_tokens * 0.001`
+- Initial population: current prompts/configs + hand-written variants
+- Mutation: OpenEvolve sends current prompt + fitness score to LLM,
+  asks for improved variant
+- Evaluation: run Phase 11 benchmark suite on each variant
+- Selection: MAP-Elites keeps best per (model_family, task_category)
+- Output: optimized prompt/config files committed to repo
 
-**References:**
-- Aider: uses tree-sitter repo maps as primary context strategy
-- Library: `tree-sitter`, `tree-sitter-languages`
+**Integration pattern:**
+```bash
+# Offline optimization (not in agent runtime)
+norn evolve --target system_prompt --generations 20 --population 10
+norn evolve --target tool_schemas --generations 10
+# Produces: configs/optimized/system_prompt_qwen3.txt, etc.
+```
 
-**Files touched:** `src/norn/core/repo_map.py` (new), `src/norn/tools/file_*.py`.
+**Prerequisite:** Phase 11 benchmark (fitness function).
 
-#### 4.8 LLMLingua-2 Compression
+**Files touched:** `src/norn/cli/evolve.py` (new),
+`src/norn/evolve/` (new module), `configs/optimized/` (output).
+
+**Dependencies:** `openevolve>=0.2` as optional extra.
+
+#### 4.9 LLMLingua-2 Compression
 
 **What:** Microsoft's prompt compression library. Uses a small model
 (XLM-RoBERTa) to identify and remove non-essential tokens from text
@@ -273,7 +375,7 @@ compressed = compressor.compress_prompt(text, rate=0.5)  # 50% compression
 - Paper: arXiv:2403.12968 (LLMLingua-2, 2024)
 - Library: `pip install llmlingua`
 
-#### 4.9 OpenAI Compaction API
+#### 4.10 OpenAI Compaction API
 
 **What:** Server-side endpoint `/responses/compact` that shrinks
 conversation history into an opaque encrypted compaction item. Carries
@@ -314,16 +416,18 @@ Use `litellm.token_counter()`.
 **Validation:** Token usage tracking in observability (Phase 9 v2 already
 logs `prompt_tokens`). Compare sessions before/after.
 
-### Wave 3 — Advanced (2–3 sessions, after Phase 10/11)
+### Wave 3 — Advanced (3–5 sessions, after Phase 10/11)
 
 | Task | Technique | Estimated Savings |
 |------|-----------|-------------------|
-| W3.1 | Diff-based file context / repo map (4.7) | 70–90% file tokens |
-| W3.2 | LLMLingua-2 optional compression (4.8) | 2–5x on text outputs |
-| W3.3 | OpenAI Compaction API support (4.9) | 50–80% (OpenAI only) |
-| W3.4 | Dynamic tool selection — embedding upgrade (4.5 opt 2) | Better relevance |
+| W3.1 | Repo map — tree-sitter AST context (4.7) | 70–90% file tokens |
+| W3.2 | OpenEvolve — evolutionary prompt optimization (4.8) | +10–25% quality, indirect token savings |
+| W3.3 | LLMLingua-2 optional compression (4.9) | 2–5x on text outputs |
+| W3.4 | OpenAI Compaction API support (4.10) | 50–80% (OpenAI only) |
+| W3.5 | Dynamic tool selection — embedding upgrade (4.5 opt 2) | Better relevance |
 
-**Prerequisite:** Phase 10 (embedder), Phase 11 (benchmark for regression testing).
+**Prerequisite:** Phase 10 (embedder), Phase 11 (benchmark for regression
+testing and OpenEvolve fitness function).
 
 ---
 
@@ -394,6 +498,8 @@ All optimizations should be measurable via existing observability (Phase 9 v2):
 | Selective Context (arXiv:2310.06201) | 2023 | Self-information based sentence filtering |
 | MInference (arXiv:2407.02490) | 2024 | KV-cache optimization for long context |
 | SCBench (MS Research) | 2024 | Shared-context benchmark for evaluation |
+| ADAS (arXiv:2408.08435) | 2024 | Meta-agent that programs new agent architectures |
+| Meta-Harness (Stanford) | 2026 | End-to-end optimization of model harnesses |
 
 ### Provider Documentation
 | Provider | Feature | URL |
@@ -408,7 +514,9 @@ All optimizations should be measurable via existing observability (Phase 9 v2):
 |---------|---------|
 | `llmlingua` (pip) | Prompt compression |
 | `tiktoken` / `litellm.token_counter()` | Token counting |
-| `tree-sitter` + `tree-sitter-languages` | AST parsing for repo maps |
+| `tree-sitter` + `tree-sitter-python` + `tree-sitter-typescript` | AST parsing for repo maps |
+| `openevolve` (pip) | Evolutionary prompt & config optimization |
+| `repomix` (npm) | Full-repo packing for one-shot LLM context |
 
 ### Production Agent Patterns
 | Agent | Technique Used |
@@ -417,6 +525,7 @@ All optimizations should be measurable via existing observability (Phase 9 v2):
 | Claude Code | Smart context eviction, ~100k window management |
 | OpenCode | Skills system (conditional prompt injection) |
 | Cursor | AST-based context selection |
+| rendergit (Karpathy) | Full-repo HTML rendering for LLM consumption |
 
 ---
 
@@ -426,8 +535,8 @@ All optimizations should be measurable via existing observability (Phase 9 v2):
 |------|----------|-------------|
 | Wave 1 (Quick Wins) | 1–2 | None |
 | Wave 2 (Context Management) | 3–4 | None |
-| Wave 3 (Advanced) | 2–3 | Phase 10 (embedder), Phase 11 (benchmark) |
-| **Total** | **6–9 sessions** | |
+| Wave 3 (Advanced) | 3–5 | Phase 10 (embedder), Phase 11 (benchmark) |
+| **Total** | **7–11 sessions** | |
 
 ---
 
