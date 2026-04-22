@@ -1,0 +1,13 @@
+id: "exploration-002-explain-data-flow"
+category: "exploration"
+description: "Explain the data flow through a pipeline"
+prompt: |
+  Analyze the data pipeline in src/ and explain how data flows from
+  `ingest()` to `export()`. Write a clear explanation to ANSWER.md
+  including which functions transform the data and what each step does.
+seed_dir: "seed/"
+eval_command: "test -f ANSWER.md && wc -w ANSWER.md | awk '{if ($1 >= 30) exit 0; else exit 1}'"
+timeout_seconds: 180
+metadata:
+  difficulty: "medium"
+  tags: ["codebase-exploration", "data-flow"]

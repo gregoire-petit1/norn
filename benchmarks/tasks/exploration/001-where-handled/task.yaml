@@ -1,0 +1,13 @@
+id: "exploration-001-where-handled"
+category: "exploration"
+description: "Find where errors are handled in a codebase"
+prompt: |
+  Explore the codebase in src/ and answer: Where are ValueError exceptions
+  caught and handled? List each file and line number. Write your answer
+  to ANSWER.md in the root directory.
+seed_dir: "seed/"
+eval_command: "test -f ANSWER.md && grep -qi 'handler' ANSWER.md"
+timeout_seconds: 180
+metadata:
+  difficulty: "easy"
+  tags: ["codebase-exploration", "error-handling"]

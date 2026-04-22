@@ -1,0 +1,14 @@
+id: "ml-tools-002-write-model-card"
+category: "ml-tools"
+description: "Write a model card for a trained model"
+prompt: |
+  Based on the training script in src/train.py and the metrics in
+  metrics.json, write a Model Card in MODEL_CARD.md following best practices.
+  Include: model description, intended use, training data summary,
+  performance metrics, limitations, and ethical considerations.
+seed_dir: "seed/"
+eval_command: "test -f MODEL_CARD.md && wc -w MODEL_CARD.md | awk '{if ($1 >= 50) exit 0; else exit 1}'"
+timeout_seconds: 240
+metadata:
+  difficulty: "medium"
+  tags: ["ml-tools", "model-card", "documentation"]

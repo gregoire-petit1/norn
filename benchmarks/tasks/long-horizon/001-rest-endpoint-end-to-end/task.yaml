@@ -1,0 +1,17 @@
+id: "long-horizon-001-rest-endpoint-end-to-end"
+category: "long-horizon"
+description: "Build a REST endpoint end-to-end with tests"
+prompt: |
+  Create a simple REST API endpoint in src/app.py using the standard library
+  (http.server or similar). Implement:
+  - GET /items — returns JSON list of items
+  - POST /items — accepts JSON body {name, price}, adds to list, returns 201
+  - GET /items/<id> — returns single item or 404
+  Store items in-memory (a list). Write tests in tests/test_app.py that
+  verify all three endpoints. All tests must pass.
+seed_dir: "seed/"
+eval_command: "uv run pytest tests/ -v"
+timeout_seconds: 300
+metadata:
+  difficulty: "hard"
+  tags: ["api", "end-to-end", "multi-file"]

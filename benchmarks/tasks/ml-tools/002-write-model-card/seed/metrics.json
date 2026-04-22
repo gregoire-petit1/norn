@@ -1,0 +1,11 @@
+{
+    "accuracy": 0.912,
+    "f1_score": 0.908,
+    "precision": 0.921,
+    "recall": 0.896,
+    "auc_roc": 0.965,
+    "eval_loss": 0.234,
+    "train_samples": 40000,
+    "eval_samples": 10000,
+    "training_time_minutes": 45
+}

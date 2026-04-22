@@ -1,0 +1,14 @@
+id: "ml-tools-001-inspect-csv-polars"
+category: "ml-tools"
+description: "Inspect a CSV dataset and write summary statistics"
+prompt: |
+  Use Polars (or pandas) to inspect the dataset in data/sales.csv.
+  Write a summary to ANSWER.md including: number of rows, column names
+  and types, min/max/mean of the 'amount' column, and the top 3 products
+  by total sales. Use the dataset_inspector or bash tool.
+seed_dir: "seed/"
+eval_command: "test -f ANSWER.md && grep -qi 'amount' ANSWER.md && grep -qi 'product' ANSWER.md"
+timeout_seconds: 180
+metadata:
+  difficulty: "easy"
+  tags: ["ml-tools", "polars", "eda"]
