@@ -32,6 +32,7 @@ flags:
   ml_tools: true        # Phase 5: PyTorch/Polars/sklearn tools
   web_search: false     # Phase 6: DuckDuckGo search + web fetch
   mcp: false            # Phase 6: MCP server tools
+  bench: false           # Phase 10: Benchmark harness
 
 mcp:
   enabled: false        # Phase 6: MCP server integration
@@ -62,4 +63,16 @@ logging:
     - "authorization"
     - "token"
     - "password"
+
+bench:
+  tasks_dir: "benchmarks/tasks"
+  results_dir: "benchmarks/results"
+  reports_dir: "benchmarks/reports"
+  default_n_runs: 1
+  default_timeout_seconds: 300
+  parallel_tasks: 1
+  judge:
+    enabled: true
+    model: "anthropic/claude-sonnet-4"
+    pass_threshold: 7.0
 

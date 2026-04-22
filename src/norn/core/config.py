@@ -45,6 +45,23 @@ class FlagsConfig(BaseModel):
     ml_tools: bool = False
     web_search: bool = False
     mcp: bool = False
+    bench: bool = False
+
+
+class JudgeConfig(BaseModel):
+    enabled: bool = True
+    model: str = "anthropic/claude-sonnet-4"
+    pass_threshold: float = 7.0
+
+
+class BenchConfig(BaseModel):
+    tasks_dir: str = "benchmarks/tasks"
+    results_dir: str = "benchmarks/results"
+    reports_dir: str = "benchmarks/reports"
+    default_n_runs: int = 1
+    default_timeout_seconds: int = 300
+    judge: JudgeConfig = JudgeConfig()
+    parallel_tasks: int = 1
 
 
 class MemorySystemConfig(BaseModel):
@@ -93,6 +110,7 @@ class NornConfig(BaseModel):
     mcp: MCPConfig = MCPConfig()
     router: RouterConfig = RouterConfig()
     logging: LoggingConfig = LoggingConfig()
+    bench: BenchConfig = BenchConfig()
 
     @classmethod
     def from_yaml(cls, path: Path) -> NornConfig:

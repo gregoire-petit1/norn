@@ -14,6 +14,25 @@ def test_default_config():
     assert config.permissions.mode == PermissionMode.INTERACTIVE
 
 
+def test_bench_config_defaults():
+    from norn.core.config import BenchConfig
+
+    cfg = BenchConfig()
+    assert cfg.tasks_dir == "benchmarks/tasks"
+    assert cfg.results_dir == "benchmarks/results"
+    assert cfg.reports_dir == "benchmarks/reports"
+    assert cfg.default_n_runs == 1
+    assert cfg.default_timeout_seconds == 300
+    assert cfg.judge.enabled is True
+    assert cfg.judge.pass_threshold == 7.0
+    assert cfg.judge.model == "anthropic/claude-sonnet-4"
+
+
+def test_bench_flag_default_false():
+    cfg = NornConfig()
+    assert cfg.flags.bench is False
+
+
 def test_config_from_yaml(tmp_path):
     config_file = tmp_path / "config.yaml"
     config_file.write_text(
