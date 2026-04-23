@@ -7,6 +7,7 @@ import time
 from typing import TYPE_CHECKING, Callable
 
 from norn.core.models import LLMResponse, Message, Role, ToolCall
+from norn.core.tool_call_extractor import extract_tool_calls_from_text
 from norn.observability import EventName, get_logger, measure_and_log
 from norn.tools.base import ToolContext, ToolResult
 
@@ -87,6 +88,25 @@ class AgentLoop:
                 messages=messages,
                 tools=self.registry.get_schemas() or None,
             )
+
+            if not response.has_tool_calls:
+                # Fallback: try to extract tool calls from text output
+                if response.content:
+                    extracted, cleaned = extract_tool_calls_from_text(response.content)
+                    if extracted:
+                        with contextlib.suppress(Exception):
+                            _log.info(
+                                "tool_call_extraction",
+                                count=len(extracted),
+                                tool_names=[c.name for c in extracted],
+                            )
+                        response = LLMResponse(
+                            content=cleaned or None,
+                            tool_calls=extracted,
+                            usage=response.usage,
+                            latency_ms=response.latency_ms,
+                            model=response.model,
+                        )
 
             if not response.has_tool_calls:
                 self.history.append(Message(role=Role.ASSISTANT, content=response.content))
