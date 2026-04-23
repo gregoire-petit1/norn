@@ -173,3 +173,54 @@ class TestRobustness:
         assert len(calls) == 1
         assert calls[0].name == "file_write"
         assert calls[0].arguments == {"path": "out.py", "content": "print(1)"}
+
+    def test_content_with_brackets(self):
+        """Tool call whose arguments contain [] should still parse correctly.
+
+        This is the root cause of code-gen-003 and long-horizon-001 failures:
+        content like ``self.order = []`` causes a naive regex ``\\[.*?\\]``
+        to stop at the first ``]`` inside the JSON string, truncating the match.
+        """
+        text = (
+            'Tool Calls: [ { "id": "call_lru", "type": "function", '
+            '"function": { "name": "file_write", "arguments": { '
+            '"path": "src/solution.py", '
+            '"content": "class LRU:\\n    def __init__(self):\\n'
+            '        self.order = []\\n        self.cache = {}\\n"'
+            " } } } ]"
+        )
+        calls, cleaned = extract_tool_calls_from_text(text)
+        assert len(calls) == 1
+        assert calls[0].name == "file_write"
+        assert calls[0].arguments["path"] == "src/solution.py"
+        assert "self.order = []" in calls[0].arguments["content"]
+        assert "Tool Calls:" not in cleaned
+
+    def test_content_with_nested_braces_and_brackets(self):
+        """Content containing both {} and [] should still parse."""
+        text = (
+            'Tool Calls: [ { "id": "call_1", "type": "function", '
+            '"function": { "name": "file_write", "arguments": { '
+            '"path": "test.py", '
+            '"content": "data = {\\"a\\": [1, 2, 3]}\\nresult = data[\\"a\\"]"'
+            " } } } ]"
+        )
+        calls, _ = extract_tool_calls_from_text(text)
+        assert len(calls) == 1
+        assert calls[0].name == "file_write"
+
+    def test_multiple_tool_calls_with_brackets_in_content(self):
+        """Multiple tool calls where content has brackets."""
+        text = (
+            "Tool Calls: [ "
+            '{ "id": "c1", "type": "function", '
+            '"function": { "name": "file_write", "arguments": { '
+            '"path": "a.py", "content": "x = [1, 2]\\n" } } }, '
+            '{ "id": "c2", "type": "function", '
+            '"function": { "name": "bash", "arguments": { '
+            '"command": "pytest" } } } ]'
+        )
+        calls, _ = extract_tool_calls_from_text(text)
+        assert len(calls) == 2
+        assert calls[0].name == "file_write"
+        assert calls[1].name == "bash"

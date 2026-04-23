@@ -14,11 +14,8 @@ from typing import Any
 
 from norn.core.models import ToolCall
 
-# Matches "Tool Calls: [...]" with the JSON array (possibly multiline).
-_TOOL_CALLS_BLOCK_RE = re.compile(
-    r"Tool\s+Calls:\s*(\[.*?\])",
-    re.DOTALL,
-)
+# Matches the "Tool Calls:" prefix to locate the start of the JSON array.
+_TOOL_CALLS_PREFIX_RE = re.compile(r"Tool\s+Calls:\s*")
 
 # Matches a standalone JSON object on its own line(s) that looks like a tool call.
 # Must have "name" and "arguments" keys.
@@ -26,6 +23,39 @@ _FLAT_TOOL_CALL_RE = re.compile(
     r'(?<![`])(\{[^{}]*"name"\s*:\s*"[^"]+?"[^{}]*"arguments"\s*:\s*\{[^}]*\}[^{}]*\})',
     re.DOTALL,
 )
+
+
+def _find_balanced_bracket(text: str, start: int) -> int | None:
+    """Find the closing ``]`` that balances the opening ``[`` at *start*.
+
+    Handles brackets inside JSON strings (skipping ``\\"`` escapes).
+    Returns the index of the matching ``]`` or ``None`` if not found.
+    """
+    if start >= len(text) or text[start] != "[":
+        return None
+
+    depth = 0
+    in_string = False
+    i = start
+    while i < len(text):
+        ch = text[i]
+        if in_string:
+            if ch == "\\" and i + 1 < len(text):
+                i += 2  # skip escaped char
+                continue
+            if ch == '"':
+                in_string = False
+        else:
+            if ch == '"':
+                in_string = True
+            elif ch == "[":
+                depth += 1
+            elif ch == "]":
+                depth -= 1
+                if depth == 0:
+                    return i
+        i += 1
+    return None
 
 
 def extract_tool_calls_from_text(text: str) -> tuple[list[ToolCall], str]:
@@ -63,12 +93,29 @@ def _strip_code_blocks(text: str) -> str:
 
 
 def _try_openai_pattern(original: str, stripped: str) -> tuple[list[ToolCall], str]:
-    """Try to extract OpenAI-style tool calls from text."""
-    match = _TOOL_CALLS_BLOCK_RE.search(stripped)
-    if not match:
+    """Try to extract OpenAI-style tool calls from text.
+
+    Uses bracket-matching instead of regex to handle JSON strings that
+    contain ``[`` and ``]`` characters (e.g. ``self.order = []``).
+    """
+    prefix_match = _TOOL_CALLS_PREFIX_RE.search(stripped)
+    if not prefix_match:
         return [], original
 
-    json_str = match.group(1)
+    # Find the start of the JSON array
+    array_start = prefix_match.end()
+    # Skip whitespace to find the opening bracket
+    while array_start < len(stripped) and stripped[array_start] in " \t\n\r":
+        array_start += 1
+    if array_start >= len(stripped) or stripped[array_start] != "[":
+        return [], original
+
+    # Use bracket-matching to find the end
+    array_end = _find_balanced_bracket(stripped, array_start)
+    if array_end is None:
+        return [], original
+
+    json_str = stripped[array_start : array_end + 1]
     try:
         items = json.loads(json_str)
     except (json.JSONDecodeError, ValueError):
@@ -86,8 +133,20 @@ def _try_openai_pattern(original: str, stripped: str) -> tuple[list[ToolCall], s
     if not calls:
         return [], original
 
-    # Remove the "Tool Calls: [...]" block from original text
-    cleaned = _TOOL_CALLS_BLOCK_RE.sub("", original).strip()
+    # Remove the "Tool Calls: [...]" block from original text.
+    # Find the same prefix in the original (not stripped) text.
+    orig_prefix = _TOOL_CALLS_PREFIX_RE.search(original)
+    if orig_prefix:
+        arr_start_orig = orig_prefix.end()
+        while arr_start_orig < len(original) and original[arr_start_orig] in " \t\n\r":
+            arr_start_orig += 1
+        arr_end_orig = _find_balanced_bracket(original, arr_start_orig)
+        if arr_end_orig is not None:
+            cleaned = (original[: orig_prefix.start()] + original[arr_end_orig + 1 :]).strip()
+            return calls, cleaned
+
+    # Fallback: remove via prefix match on original
+    cleaned = _TOOL_CALLS_PREFIX_RE.sub("", original).strip()
     return calls, cleaned
 
 
