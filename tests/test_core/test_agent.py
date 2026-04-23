@@ -291,3 +291,100 @@ async def test_agent_without_memory_still_works(registry):
     agent = AgentLoop(llm=llm, registry=registry)
     result = await agent.run("hi")
     assert result.content == "hello"
+
+
+# --------------------------------------------------------------------------- #
+# Streaming agent loop tests
+# --------------------------------------------------------------------------- #
+
+
+from norn.core.models import AgentEvent, EventType, StreamChunk
+
+
+async def _mock_stream_text(text_chunks: list[str]):
+    """Helper: mock LLM.stream() yielding text chunks then done."""
+    for text in text_chunks:
+        yield StreamChunk(content=text, done=False)
+    yield StreamChunk(content=None, done=True)
+
+
+async def _mock_stream_tool_call(tool_calls: list[ToolCall]):
+    """Helper: mock LLM.stream() yielding a done chunk with tool calls."""
+    yield StreamChunk(content=None, tool_calls=tool_calls, done=True)
+
+
+@pytest.mark.asyncio
+async def test_run_stream_text_only(registry):
+    """run_stream should yield TEXT_DELTA events then DONE."""
+    llm = AsyncMock()
+    llm.stream = lambda **kwargs: _mock_stream_text(["Hello", " world"])
+
+    agent = AgentLoop(llm=llm, registry=registry)
+    events = []
+    async for event in agent.run_stream("hi"):
+        events.append(event)
+
+    text_events = [e for e in events if e.type == EventType.TEXT_DELTA]
+    assert len(text_events) >= 1
+    assert any(e.content == "Hello" for e in text_events)
+
+    done_events = [e for e in events if e.type == EventType.DONE]
+    assert len(done_events) == 1
+
+
+@pytest.mark.asyncio
+async def test_run_stream_tool_call_then_text(registry):
+    """run_stream should yield TOOL_START, TOOL_END, then TEXT_DELTA, DONE."""
+    call_count = 0
+
+    async def mock_stream(**kwargs):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            # First round: tool call
+            async for chunk in _mock_stream_tool_call(
+                [ToolCall(id="c1", name="echo", arguments={"text": "hi"})]
+            ):
+                yield chunk
+        else:
+            # Second round: text response
+            async for chunk in _mock_stream_text(["Done"]):
+                yield chunk
+
+    llm = AsyncMock()
+    llm.stream = mock_stream
+
+    agent = AgentLoop(llm=llm, registry=registry)
+    events = []
+    async for event in agent.run_stream("echo hi"):
+        events.append(event)
+
+    types = [e.type for e in events]
+    assert EventType.TOOL_START in types
+    assert EventType.TOOL_END in types
+    assert EventType.TEXT_DELTA in types
+    assert EventType.DONE in types
+
+    # TOOL_START should come before TOOL_END
+    start_idx = types.index(EventType.TOOL_START)
+    end_idx = types.index(EventType.TOOL_END)
+    assert start_idx < end_idx
+
+    # Tool end should have success=True
+    tool_end = [e for e in events if e.type == EventType.TOOL_END][0]
+    assert tool_end.success is True
+    assert tool_end.tool_name == "echo"
+
+
+@pytest.mark.asyncio
+async def test_run_stream_updates_history(registry):
+    """run_stream should update history like run()."""
+    llm = AsyncMock()
+    llm.stream = lambda **kwargs: _mock_stream_text(["Hello"])
+
+    agent = AgentLoop(llm=llm, registry=registry)
+    async for _ in agent.run_stream("hi"):
+        pass
+
+    assert len(agent.history) == 2  # user + assistant
+    assert agent.user_message_count == 1

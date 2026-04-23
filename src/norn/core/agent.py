@@ -4,9 +4,18 @@ from __future__ import annotations
 
 import contextlib
 import time
+from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING, Callable
 
-from norn.core.models import LLMResponse, Message, Role, ToolCall
+from norn.core.models import (
+    AgentEvent,
+    EventType,
+    LLMResponse,
+    Message,
+    Role,
+    StreamChunk,
+    ToolCall,
+)
 from norn.core.prompts import AGENT_SYSTEM_PROMPT
 from norn.core.tool_call_extractor import extract_tool_calls_from_text
 from norn.core.truncation import truncate_tool_output
@@ -144,6 +153,108 @@ class AgentLoop:
         final = LLMResponse(content="[Max tool rounds reached]")
         self.history.append(Message(role=Role.ASSISTANT, content=final.content))
         return final
+
+    async def run_stream(self, user_input: str) -> AsyncIterator[AgentEvent]:
+        """Run one turn of the agent loop, yielding events for real-time rendering.
+
+        Mirrors ``_run_impl`` logic but yields ``AgentEvent`` objects
+        progressively so the CLI can render text as it arrives and show
+        tool progress in real time.
+        """
+        self.user_message_count += 1
+        self.history.append(Message(role=Role.USER, content=user_input))
+
+        messages: list[Message] = [
+            Message(role=Role.SYSTEM, content=self._build_system_prompt()),
+            *self.history,
+        ]
+
+        for _round in range(self._max_tool_rounds):
+            # --- Stream from LLM ---
+            accumulated_content = ""
+            accumulated_tool_calls: list[ToolCall] = []
+            final_usage = None
+
+            async for chunk in self.llm.stream(
+                messages=messages,
+                tools=self.registry.get_schemas(minify=self._minify_tool_schemas) or None,
+            ):
+                if chunk.content:
+                    accumulated_content += chunk.content
+                    yield AgentEvent(type=EventType.TEXT_DELTA, content=chunk.content)
+
+                if chunk.done:
+                    if chunk.tool_calls:
+                        accumulated_tool_calls = chunk.tool_calls
+                    if chunk.usage:
+                        final_usage = chunk.usage
+
+            # --- Fallback: extract tool calls from text output ---
+            tool_calls = accumulated_tool_calls
+            if not tool_calls and accumulated_content:
+                extracted, cleaned = extract_tool_calls_from_text(accumulated_content)
+                if extracted:
+                    with contextlib.suppress(Exception):
+                        _log.info(
+                            "tool_call_extraction",
+                            count=len(extracted),
+                            tool_names=[c.name for c in extracted],
+                        )
+                    tool_calls = extracted
+                    accumulated_content = cleaned or ""
+
+            # --- No tool calls → turn is done ---
+            if not tool_calls:
+                self.history.append(
+                    Message(role=Role.ASSISTANT, content=accumulated_content or None)
+                )
+                yield AgentEvent(type=EventType.DONE, usage=final_usage)
+                return
+
+            # --- Process tool calls ---
+            assistant_msg = Message(
+                role=Role.ASSISTANT,
+                content=accumulated_content or None,
+                tool_calls=tool_calls,
+            )
+            messages.append(assistant_msg)
+            self.history.append(assistant_msg)
+
+            for call in tool_calls:
+                self.tool_call_count += 1
+                yield AgentEvent(
+                    type=EventType.TOOL_START,
+                    tool_name=call.name,
+                    tool_args=self._summarize_tool_args(call),
+                )
+
+                start = time.monotonic()
+                result = await self._execute_tool(call)
+                duration_ms = int((time.monotonic() - start) * 1000)
+
+                raw_content = result.output or result.error or ""
+                content = truncate_tool_output(raw_content, self._max_tool_result_chars)
+
+                tool_msg = Message(
+                    role=Role.TOOL,
+                    content=content,
+                    tool_call_id=call.id,
+                )
+                messages.append(tool_msg)
+                self.history.append(tool_msg)
+
+                yield AgentEvent(
+                    type=EventType.TOOL_END,
+                    tool_name=call.name,
+                    tool_args=self._summarize_tool_args(call),
+                    tool_result=content,
+                    duration_ms=duration_ms,
+                    success=result.error is None,
+                )
+
+        # Safety: max tool rounds reached
+        self.history.append(Message(role=Role.ASSISTANT, content="[Max tool rounds reached]"))
+        yield AgentEvent(type=EventType.DONE)
 
     async def _execute_tool(self, call: ToolCall) -> ToolResult:
         """Execute a single tool call, with optional permission check.
