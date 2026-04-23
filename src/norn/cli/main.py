@@ -13,11 +13,14 @@ load_dotenv()
 
 import typer
 from rich.console import Console
-from rich.markdown import Markdown
-from rich.prompt import Confirm, Prompt
+from rich.prompt import Confirm
+
+from prompt_toolkit import PromptSession
+from prompt_toolkit.key_binding import KeyBindings
 
 from norn.cli.bench import bench_app
 from norn.cli.logs import logs_app
+from norn.cli.renderer import StreamRenderer
 from norn.core.agent import AgentLoop
 from norn.core.config import NornConfig
 from norn.core.router import RouterProvider, Tier, build_litellm_provider
@@ -264,7 +267,6 @@ def chat(model: ModelOption = None, verbose: VerboseOption = False) -> None:
         permission_checker=checker,
         memory_store=memory_store,
         session_logger=session_logger,
-        on_tool_progress=_make_tool_progress(),
         max_tool_rounds=config.agent.max_tool_rounds,
         minify_tool_schemas=config.agent.minify_tool_schemas,
         max_tool_result_chars=config.agent.max_tool_result_chars,
@@ -272,12 +274,26 @@ def chat(model: ModelOption = None, verbose: VerboseOption = False) -> None:
 
     console.print("[bold]Norn[/bold] - the coding agent that weaves your destiny")
     console.print(f"Permission mode: [bold]{config.permissions.mode.value}[/bold]")
-    console.print("Type 'exit' or 'quit' to leave. Ctrl+C to interrupt.\n")
+    console.print("Type 'exit' or 'quit' to leave. Alt+Enter for newlines. Ctrl+D to exit.\n")
 
     async def _chat_loop() -> None:
+        renderer = StreamRenderer(console)
+        # Build prompt_toolkit session with multiline support
+        bindings = KeyBindings()
+
+        @bindings.add("escape", "enter")
+        def _insert_newline(event):
+            event.current_buffer.insert_text("\n")
+
+        session: PromptSession[str] = PromptSession(
+            message="> ",
+            multiline=False,  # Enter sends by default
+            key_bindings=bindings,
+        )
+
         while True:
             try:
-                user_input = Prompt.ask("[bold cyan]>[/bold cyan]")
+                user_input = await asyncio.get_event_loop().run_in_executor(None, session.prompt)
             except (EOFError, KeyboardInterrupt):
                 console.print("\nGoodbye.")
                 break
@@ -290,12 +306,7 @@ def chat(model: ModelOption = None, verbose: VerboseOption = False) -> None:
                 continue
 
             try:
-                console.print("[dim]Thinking...[/dim]")
-                response = await agent.run(user_input)
-
-                if response.content:
-                    console.print(Markdown(response.content))
-                _print_metrics(response)
+                await renderer.render(agent.run_stream(user_input))
                 console.print()
 
             except KeyboardInterrupt:
@@ -334,17 +345,14 @@ def run(
         permission_checker=checker,
         memory_store=memory_store,
         session_logger=session_logger,
-        on_tool_progress=_make_tool_progress(),
         max_tool_rounds=config.agent.max_tool_rounds,
         minify_tool_schemas=config.agent.minify_tool_schemas,
         max_tool_result_chars=config.agent.max_tool_result_chars,
     )
 
     async def _run_once() -> None:
-        response = await agent.run(prompt)
-        if response.content:
-            console.print(Markdown(response.content))
-        _print_metrics(response)
+        renderer = StreamRenderer(console)
+        await renderer.render(agent.run_stream(prompt))
 
     asyncio.run(_run_once())
 
