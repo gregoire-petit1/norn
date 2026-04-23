@@ -63,3 +63,28 @@ class StreamChunk(BaseModel):
     content: str | None = None
     tool_calls: list[ToolCall] | None = None
     done: bool = False
+    usage: TokenUsage | None = None
+
+
+class EventType(StrEnum):
+    """Types of events yielded by the streaming agent loop."""
+
+    TEXT_DELTA = "text_delta"
+    TOOL_START = "tool_start"
+    TOOL_END = "tool_end"
+    DONE = "done"
+
+
+class AgentEvent(BaseModel):
+    """Event yielded by AgentLoop.run_stream()."""
+
+    type: EventType
+    content: str | None = None
+    tool_name: str | None = None
+    tool_args: str | None = None
+    tool_result: str | None = None
+    duration_ms: int | None = None
+    success: bool | None = None
+    usage: TokenUsage | None = None
+    latency_ms: int | None = None
+    model: str | None = None
