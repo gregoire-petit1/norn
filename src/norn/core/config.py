@@ -101,10 +101,15 @@ class LoggingConfig(BaseModel):
     )
 
 
+class AgentConfig(BaseModel):
+    max_tool_rounds: int = 25
+
+
 class NornConfig(BaseModel):
     llm: LLMConfig = LLMConfig()
     permissions: PermissionsConfig = PermissionsConfig()
     flags: FlagsConfig = FlagsConfig()
+    agent: AgentConfig = AgentConfig()
     memory: MemorySystemConfig = MemorySystemConfig()
     coordinator: CoordinatorConfig = CoordinatorConfig()
     mcp: MCPConfig = MCPConfig()

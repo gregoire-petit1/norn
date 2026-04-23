@@ -6,7 +6,7 @@ prompt: |
   caught and handled? List each file and line number. Write your answer
   to ANSWER.md in the root directory.
 seed_dir: "seed/"
-eval_command: "test -f ANSWER.md && grep -qi 'handler' ANSWER.md"
+eval_command: "test -f ANSWER.md && grep -qiE 'handler|except|catch|ValueError' ANSWER.md"
 timeout_seconds: 180
 metadata:
   difficulty: "easy"

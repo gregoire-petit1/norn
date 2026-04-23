@@ -265,6 +265,7 @@ def chat(model: ModelOption = None, verbose: VerboseOption = False) -> None:
         memory_store=memory_store,
         session_logger=session_logger,
         on_tool_progress=_make_tool_progress(),
+        max_tool_rounds=config.agent.max_tool_rounds,
     )
 
     console.print("[bold]Norn[/bold] - the coding agent that weaves your destiny")
@@ -332,6 +333,7 @@ def run(
         memory_store=memory_store,
         session_logger=session_logger,
         on_tool_progress=_make_tool_progress(),
+        max_tool_rounds=config.agent.max_tool_rounds,
     )
 
     async def _run_once() -> None:

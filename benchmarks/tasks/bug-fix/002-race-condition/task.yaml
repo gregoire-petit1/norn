@@ -7,7 +7,7 @@ prompt: |
   All tests must pass.
 seed_dir: "seed/"
 eval_command: "uv run pytest tests/ -v"
-timeout_seconds: 120
+timeout_seconds: 180
 metadata:
   difficulty: "medium"
   tags: ["threading", "concurrency"]

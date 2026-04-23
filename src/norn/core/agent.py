@@ -27,7 +27,7 @@ _log = get_logger(__name__)
 class AgentLoop:
     """The main agent loop: message -> LLM -> tool calls -> repeat."""
 
-    MAX_TOOL_ROUNDS = 25  # Safety limit
+    DEFAULT_MAX_TOOL_ROUNDS = 25  # Safety limit
 
     def __init__(
         self,
@@ -39,6 +39,7 @@ class AgentLoop:
         memory_store: MemoryStore | None = None,
         session_logger: SessionLogger | None = None,
         on_tool_progress: ToolProgressCallback | None = None,
+        max_tool_rounds: int | None = None,
     ) -> None:
         self.llm = llm
         self.registry = registry
@@ -49,6 +50,7 @@ class AgentLoop:
         self.memory_store = memory_store
         self.session_logger = session_logger
         self._on_tool_progress = on_tool_progress
+        self._max_tool_rounds = max_tool_rounds or self.DEFAULT_MAX_TOOL_ROUNDS
         # Session stats
         self.user_message_count = 0
         self.tool_call_count = 0
@@ -80,7 +82,7 @@ class AgentLoop:
             *self.history,
         ]
 
-        for _round in range(self.MAX_TOOL_ROUNDS):
+        for _round in range(self._max_tool_rounds):
             response = await self.llm.complete(
                 messages=messages,
                 tools=self.registry.get_schemas() or None,

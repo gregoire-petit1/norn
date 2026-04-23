@@ -216,8 +216,12 @@ def bench_run(
     except Exception:
         git_sha = "unknown"
 
-    # Use 'auto' mode: LOW/MEDIUM auto-approved, HIGH denied (no TTY in subprocess)
-    config_overrides: dict = {"permissions": {"mode": "auto"}}
+    # Use 'yolo' mode: all tools auto-approved (subprocess has no TTY for prompts)
+    # Limit tool rounds to 15 to prevent echo loops after task completion
+    config_overrides: dict = {
+        "permissions": {"mode": "yolo"},
+        "agent": {"max_tool_rounds": 15},
+    }
     if model:
         config_overrides["llm"] = {"model": model}
 
