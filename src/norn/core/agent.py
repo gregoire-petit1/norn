@@ -7,7 +7,9 @@ import time
 from typing import TYPE_CHECKING, Callable
 
 from norn.core.models import LLMResponse, Message, Role, ToolCall
+from norn.core.prompts import AGENT_SYSTEM_PROMPT
 from norn.core.tool_call_extractor import extract_tool_calls_from_text
+from norn.core.truncation import truncate_tool_output
 from norn.observability import EventName, get_logger, measure_and_log
 from norn.tools.base import ToolContext, ToolResult
 
@@ -34,13 +36,15 @@ class AgentLoop:
         self,
         llm: LLMProvider,
         registry: ToolRegistry,
-        system_prompt: str = "You are Norn, a helpful coding agent.",
+        system_prompt: str = AGENT_SYSTEM_PROMPT,
         cwd: str = ".",
         permission_checker: PermissionChecker | None = None,
         memory_store: MemoryStore | None = None,
         session_logger: SessionLogger | None = None,
         on_tool_progress: ToolProgressCallback | None = None,
         max_tool_rounds: int | None = None,
+        minify_tool_schemas: bool = True,
+        max_tool_result_chars: int = 8000,
     ) -> None:
         self.llm = llm
         self.registry = registry
@@ -52,6 +56,8 @@ class AgentLoop:
         self.session_logger = session_logger
         self._on_tool_progress = on_tool_progress
         self._max_tool_rounds = max_tool_rounds or self.DEFAULT_MAX_TOOL_ROUNDS
+        self._minify_tool_schemas = minify_tool_schemas
+        self._max_tool_result_chars = max_tool_result_chars
         # Session stats
         self.user_message_count = 0
         self.tool_call_count = 0
@@ -86,7 +92,7 @@ class AgentLoop:
         for _round in range(self._max_tool_rounds):
             response = await self.llm.complete(
                 messages=messages,
-                tools=self.registry.get_schemas() or None,
+                tools=self.registry.get_schemas(minify=self._minify_tool_schemas) or None,
             )
 
             if not response.has_tool_calls:
@@ -124,9 +130,11 @@ class AgentLoop:
             for call in response.tool_calls:
                 self.tool_call_count += 1
                 result = await self._execute_tool(call)
+                raw_content = result.output or result.error or ""
+                content = truncate_tool_output(raw_content, self._max_tool_result_chars)
                 tool_msg = Message(
                     role=Role.TOOL,
-                    content=result.output or result.error or "",
+                    content=content,
                     tool_call_id=call.id,
                 )
                 messages.append(tool_msg)

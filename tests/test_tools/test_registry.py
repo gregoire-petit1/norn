@@ -120,3 +120,180 @@ def test_unflagged_tool_always_included():
     registry.register(MockTool())
 
     assert len(registry.list_tools()) == 1
+
+
+# ── W1.1 — Tool Schema Minification ──────────────────────────────────
+
+
+class VerboseInput(BaseModel):
+    """A verbose input model with descriptions, defaults, and examples."""
+
+    file_path: str
+    show_sample: bool = False
+    sample_rows: int = 5
+
+
+class VerboseTool:
+    """Tool with a long description and a verbose Pydantic input model."""
+
+    name = "verbose_tool"
+    description = (
+        "This is a very long description that exceeds eighty characters "
+        "and should be truncated when minify is enabled on the registry."
+    )
+    risk_level = RiskLevel.LOW
+    input_model = VerboseInput
+
+
+class ShortTool:
+    """Tool with a short description that stays under 80 chars."""
+
+    name = "short_tool"
+    description = "Short description."
+    risk_level = RiskLevel.LOW
+    input_model = MockInput
+
+
+def test_get_schemas_minify_strips_defaults():
+    """Minified schemas should remove 'default' from parameter properties."""
+    registry = ToolRegistry()
+    registry.register(VerboseTool())
+    schemas = registry.get_schemas(minify=True)
+
+    params = schemas[0]["parameters"]
+    for prop in params.get("properties", {}).values():
+        assert "default" not in prop
+
+
+def test_get_schemas_minify_strips_title():
+    """Minified schemas should remove 'title' from parameter properties."""
+    registry = ToolRegistry()
+    registry.register(VerboseTool())
+    schemas = registry.get_schemas(minify=True)
+
+    params = schemas[0]["parameters"]
+    assert "title" not in params
+    for prop in params.get("properties", {}).values():
+        assert "title" not in prop
+
+
+def test_get_schemas_minify_strips_additional_properties():
+    """Minified schemas should remove 'additionalProperties' boilerplate."""
+    registry = ToolRegistry()
+    registry.register(VerboseTool())
+    schemas = registry.get_schemas(minify=True)
+
+    params = schemas[0]["parameters"]
+    assert "additionalProperties" not in params
+
+
+def test_get_schemas_minify_strips_examples():
+    """Minified schemas should remove 'examples' from parameter properties."""
+    registry = ToolRegistry()
+    registry.register(VerboseTool())
+
+    # Manually inject examples to verify removal
+    schemas_full = registry.get_schemas(minify=False)
+    schemas_full[0]["parameters"]["properties"]["file_path"]["examples"] = ["/tmp/test.csv"]
+    # Re-invalidate cache and get minified
+    registry._schema_cache = None
+    registry._schema_cache_minified = None
+
+    schemas = registry.get_schemas(minify=True)
+    params = schemas[0]["parameters"]
+    for prop in params.get("properties", {}).values():
+        assert "examples" not in prop
+
+
+def test_get_schemas_minify_truncates_long_description():
+    """Tool descriptions >80 chars should be truncated with minify."""
+    registry = ToolRegistry()
+    registry.register(VerboseTool())
+    schemas = registry.get_schemas(minify=True)
+
+    desc = schemas[0]["description"]
+    assert len(desc) <= 83  # 80 + "..."
+
+
+def test_get_schemas_minify_keeps_short_description():
+    """Tool descriptions <=80 chars should remain unchanged."""
+    registry = ToolRegistry()
+    registry.register(ShortTool())
+    schemas = registry.get_schemas(minify=True)
+
+    assert schemas[0]["description"] == "Short description."
+
+
+def test_get_schemas_minify_preserves_name_and_required():
+    """Minification should keep name, description, required, and property names."""
+    registry = ToolRegistry()
+    registry.register(VerboseTool())
+    schemas = registry.get_schemas(minify=True)
+
+    schema = schemas[0]
+    assert schema["name"] == "verbose_tool"
+    assert "parameters" in schema
+    params = schema["parameters"]
+    assert "properties" in params
+    assert "file_path" in params["properties"]
+    assert "show_sample" in params["properties"]
+    assert "sample_rows" in params["properties"]
+    # 'required' should still be present
+    assert "required" in params
+
+
+def test_get_schemas_minify_false_returns_full_schema():
+    """minify=False should return full schema with defaults, titles, etc."""
+    registry = ToolRegistry()
+    registry.register(VerboseTool())
+    schemas = registry.get_schemas(minify=False)
+
+    params = schemas[0]["parameters"]
+    # Full schema should have title from Pydantic
+    assert "title" in params
+
+
+def test_get_schemas_minify_separate_caches():
+    """Minified and full schemas should use separate caches."""
+    registry = ToolRegistry()
+    registry.register(VerboseTool())
+
+    full = registry.get_schemas(minify=False)
+    mini = registry.get_schemas(minify=True)
+
+    # They should not be the same object
+    assert full is not mini
+
+    # Calling again should return cached versions
+    assert registry.get_schemas(minify=False) is full
+    assert registry.get_schemas(minify=True) is mini
+
+
+def test_get_schemas_minify_cache_invalidated_on_register():
+    """Registering a new tool should invalidate both caches."""
+    registry = ToolRegistry()
+    registry.register(VerboseTool())
+
+    full1 = registry.get_schemas(minify=False)
+    mini1 = registry.get_schemas(minify=True)
+
+    registry.register(ShortTool())
+
+    full2 = registry.get_schemas(minify=False)
+    mini2 = registry.get_schemas(minify=True)
+
+    assert full1 is not full2
+    assert mini1 is not mini2
+    assert len(full2) == 2
+    assert len(mini2) == 2
+
+
+def test_get_schemas_default_is_not_minified():
+    """get_schemas() without arguments should return full schemas (backward compat)."""
+    registry = ToolRegistry()
+    registry.register(VerboseTool())
+
+    schemas = registry.get_schemas()
+    # Should be same as minify=False
+    schemas_full = registry.get_schemas(minify=False)
+    assert schemas is schemas_full

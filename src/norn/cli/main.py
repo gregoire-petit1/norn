@@ -266,6 +266,8 @@ def chat(model: ModelOption = None, verbose: VerboseOption = False) -> None:
         session_logger=session_logger,
         on_tool_progress=_make_tool_progress(),
         max_tool_rounds=config.agent.max_tool_rounds,
+        minify_tool_schemas=config.agent.minify_tool_schemas,
+        max_tool_result_chars=config.agent.max_tool_result_chars,
     )
 
     console.print("[bold]Norn[/bold] - the coding agent that weaves your destiny")
@@ -334,6 +336,8 @@ def run(
         session_logger=session_logger,
         on_tool_progress=_make_tool_progress(),
         max_tool_rounds=config.agent.max_tool_rounds,
+        minify_tool_schemas=config.agent.minify_tool_schemas,
+        max_tool_result_chars=config.agent.max_tool_result_chars,
     )
 
     async def _run_once() -> None:

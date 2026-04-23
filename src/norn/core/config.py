@@ -103,6 +103,8 @@ class LoggingConfig(BaseModel):
 
 class AgentConfig(BaseModel):
     max_tool_rounds: int = 25
+    minify_tool_schemas: bool = True
+    max_tool_result_chars: int = 8000
 
 
 class NornConfig(BaseModel):
