@@ -108,3 +108,127 @@ async def test_complete_empty_messages_raises_value_error(provider):
         await p.complete(messages=[])
 
     fake_completion.assert_not_awaited()
+
+
+# --------------------------------------------------------------------------- #
+# Streaming tests
+# --------------------------------------------------------------------------- #
+
+
+def _make_stream_chunk(content=None, tool_calls=None, finish_reason=None, usage=None):
+    """Build a mock litellm streaming chunk."""
+    delta = MagicMock()
+    delta.content = content
+    delta.tool_calls = tool_calls
+    choice = MagicMock()
+    choice.delta = delta
+    choice.finish_reason = finish_reason
+    chunk = MagicMock()
+    chunk.choices = [choice]
+    chunk.usage = usage
+    return chunk
+
+
+async def _mock_stream_response(chunks):
+    """Create an async iterable from a list of mock chunks."""
+    for c in chunks:
+        yield c
+
+
+@pytest.mark.asyncio
+async def test_stream_yields_text_chunks():
+    chunks = [
+        _make_stream_chunk(content="Hello"),
+        _make_stream_chunk(content=" world"),
+        _make_stream_chunk(content=None, finish_reason="stop"),
+    ]
+
+    async def mock_completion(**kwargs):
+        return _mock_stream_response(chunks)
+
+    provider = LiteLLMProvider("test/model", completion_fn=mock_completion)
+    messages = [Message(role=Role.USER, content="hi")]
+
+    collected = []
+    async for chunk in provider.stream(messages):
+        collected.append(chunk)
+
+    assert any(c.content == "Hello" for c in collected)
+    assert any(c.content == " world" for c in collected)
+    assert collected[-1].done is True
+
+
+@pytest.mark.asyncio
+async def test_stream_accumulates_tool_calls():
+    """Tool call fragments across chunks should be assembled into complete ToolCalls."""
+    tc_frag_1 = MagicMock()
+    tc_frag_1.index = 0
+    tc_frag_1.id = "call_abc"
+    tc_frag_1.function = MagicMock()
+    tc_frag_1.function.name = "bash"
+    tc_frag_1.function.arguments = '{"comm'
+
+    tc_frag_2 = MagicMock()
+    tc_frag_2.index = 0
+    tc_frag_2.id = None
+    tc_frag_2.function = MagicMock()
+    tc_frag_2.function.name = None
+    tc_frag_2.function.arguments = 'and": "ls"}'
+
+    chunks = [
+        _make_stream_chunk(tool_calls=[tc_frag_1]),
+        _make_stream_chunk(tool_calls=[tc_frag_2]),
+        _make_stream_chunk(finish_reason="tool_calls"),
+    ]
+
+    async def mock_completion(**kwargs):
+        return _mock_stream_response(chunks)
+
+    provider = LiteLLMProvider("test/model", completion_fn=mock_completion)
+    messages = [Message(role=Role.USER, content="run ls")]
+
+    collected = []
+    async for chunk in provider.stream(messages):
+        collected.append(chunk)
+
+    final = collected[-1]
+    assert final.done is True
+    assert final.tool_calls is not None
+    assert len(final.tool_calls) == 1
+    assert final.tool_calls[0].name == "bash"
+    assert final.tool_calls[0].arguments == {"command": "ls"}
+
+
+@pytest.mark.asyncio
+async def test_stream_uses_completion_fn():
+    """stream() should use self._completion_fn, not hardcoded litellm."""
+    called_with = {}
+
+    async def mock_completion(**kwargs):
+        called_with.update(kwargs)
+        return _mock_stream_response(
+            [
+                _make_stream_chunk(content="ok", finish_reason="stop"),
+            ]
+        )
+
+    provider = LiteLLMProvider("test/model", completion_fn=mock_completion)
+    messages = [Message(role=Role.USER, content="hi")]
+
+    async for _ in provider.stream(messages):
+        pass
+
+    assert called_with["stream"] is True
+    assert called_with["model"] == "test/model"
+
+
+@pytest.mark.asyncio
+async def test_stream_empty_messages_raises():
+    async def mock_completion(**kwargs):
+        return _mock_stream_response([])
+
+    provider = LiteLLMProvider("test/model", completion_fn=mock_completion)
+
+    with pytest.raises(ValueError, match="messages cannot be empty"):
+        async for _ in provider.stream(messages=[]):
+            pass

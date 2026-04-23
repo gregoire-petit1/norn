@@ -298,6 +298,15 @@ class LiteLLMProvider:
         temperature: float = 0.0,
         max_tokens: int = 4096,
     ) -> AsyncIterator[StreamChunk]:
+        """Stream LLM response chunks with tool call accumulation.
+
+        Yields ``StreamChunk`` objects progressively. Tool call fragments
+        arriving across multiple chunks are accumulated and assembled into
+        complete ``ToolCall`` objects on the final chunk (``done=True``).
+        """
+        if not messages:
+            raise ValueError("messages cannot be empty")
+
         kwargs: dict = {
             "model": self.model,
             "messages": _messages_to_dicts(messages),
@@ -312,10 +321,80 @@ class LiteLLMProvider:
         if tool_schemas:
             kwargs["tools"] = tool_schemas
 
-        response = await litellm.acompletion(**kwargs)
-        async for chunk in response:
-            delta = chunk.choices[0].delta
-            yield StreamChunk(
-                content=delta.content if hasattr(delta, "content") else None,
-                done=chunk.choices[0].finish_reason is not None,
+        # Apply prompt-cache markers (same as complete())
+        if self._prompt_cache:
+            marked_messages, marked_tools = _apply_cache_markers(
+                kwargs["messages"],
+                kwargs.get("tools"),
+                enabled=True,
             )
+            kwargs["messages"] = marked_messages
+            if marked_tools is not None:
+                kwargs["tools"] = marked_tools
+
+        completion = self._completion_fn or litellm.acompletion
+        response = await completion(**kwargs)
+
+        # Accumulator for fragmented tool calls (keyed by index)
+        tc_accum: dict[int, dict] = {}
+        final_usage = None
+
+        async for chunk in response:
+            choice = chunk.choices[0] if chunk.choices else None
+            if choice is None:
+                continue
+
+            delta = choice.delta
+
+            # Accumulate tool call fragments
+            if hasattr(delta, "tool_calls") and delta.tool_calls:
+                for tc_delta in delta.tool_calls:
+                    idx = tc_delta.index
+                    if idx not in tc_accum:
+                        tc_accum[idx] = {"id": "", "name": "", "arguments": ""}
+                    if tc_delta.id:
+                        tc_accum[idx]["id"] = tc_delta.id
+                    if tc_delta.function:
+                        if tc_delta.function.name:
+                            tc_accum[idx]["name"] = tc_delta.function.name
+                        if tc_delta.function.arguments:
+                            tc_accum[idx]["arguments"] += tc_delta.function.arguments
+
+            # Track usage from final chunk
+            if hasattr(chunk, "usage") and chunk.usage:
+                final_usage = chunk.usage
+
+            content = delta.content if hasattr(delta, "content") else None
+            done = choice.finish_reason is not None
+
+            if done:
+                # Assemble accumulated tool calls
+                assembled_calls = None
+                if tc_accum:
+                    assembled_calls = []
+                    for idx in sorted(tc_accum):
+                        tc = tc_accum[idx]
+                        try:
+                            args = json.loads(tc["arguments"]) if tc["arguments"] else {}
+                        except (json.JSONDecodeError, ValueError):
+                            args = {}
+                        assembled_calls.append(
+                            ToolCall(id=tc["id"], name=tc["name"], arguments=args)
+                        )
+
+                usage = None
+                if final_usage:
+                    usage = TokenUsage(
+                        prompt_tokens=getattr(final_usage, "prompt_tokens", 0) or 0,
+                        completion_tokens=getattr(final_usage, "completion_tokens", 0) or 0,
+                        total_tokens=getattr(final_usage, "total_tokens", 0) or 0,
+                    )
+
+                yield StreamChunk(
+                    content=content,
+                    tool_calls=assembled_calls,
+                    done=True,
+                    usage=usage,
+                )
+            else:
+                yield StreamChunk(content=content, done=False)
