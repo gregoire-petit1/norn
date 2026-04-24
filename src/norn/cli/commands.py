@@ -80,3 +80,33 @@ def slash_command(
         return fn
 
     return decorator
+
+
+class _ExitRequested(Exception):
+    """Raised by /exit to signal the chat loop to stop."""
+
+
+def _register_session_commands(reg: SlashCommandRegistry) -> None:
+    """Register /help, /exit, /clear commands."""
+
+    @slash_command("/help", description="Show available commands", registry=reg)
+    async def cmd_help(ctx: CommandContext, args: str) -> None:
+        ctx.console.print(reg.help_text())
+
+    @slash_command("/exit", description="Exit the chat session", registry=reg)
+    async def cmd_exit(ctx: CommandContext, args: str) -> None:
+        raise _ExitRequested()
+
+    @slash_command("/clear", description="Clear conversation history", registry=reg)
+    async def cmd_clear(ctx: CommandContext, args: str) -> None:
+        ctx.agent.history = []
+        ctx.agent.user_message_count = 0
+        ctx.agent.tool_call_count = 0
+        ctx.console.print("[green]History cleared.[/green]")
+
+
+def build_default_registry() -> SlashCommandRegistry:
+    """Create a registry with all default commands."""
+    reg = SlashCommandRegistry()
+    _register_session_commands(reg)
+    return reg
