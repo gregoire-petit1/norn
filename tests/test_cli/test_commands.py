@@ -159,3 +159,25 @@ async def test_model_switch(default_registry, full_ctx):
     await default_registry.dispatch(full_ctx, "/model ollama/qwen2.5-coder:14b")
     full_ctx.provider_factory.assert_called_once_with("ollama/qwen2.5-coder:14b")
     assert full_ctx.agent.llm is new_provider
+
+
+def test_default_registry_has_debug_commands(default_registry):
+    names = default_registry.command_names()
+    assert "/tokens" in names
+    assert "/history" in names
+    assert "/tools" in names
+
+
+@pytest.mark.asyncio
+async def test_tokens_shows_counts(default_registry, full_ctx):
+    """``/tokens`` should not raise and show session stats."""
+    full_ctx.agent.user_message_count = 5
+    full_ctx.agent.tool_call_count = 12
+    full_ctx.agent.history = [MagicMock()] * 10
+    await default_registry.dispatch(full_ctx, "/tokens")
+
+
+@pytest.mark.asyncio
+async def test_history_shows_messages(default_registry, full_ctx):
+    """``/history`` should not raise."""
+    await default_registry.dispatch(full_ctx, "/history")

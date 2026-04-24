@@ -153,8 +153,49 @@ def _register_session_commands(reg: SlashCommandRegistry) -> None:
             ctx.console.print(f"[red]Failed to switch model: {exc}[/red]")
 
 
+def _register_debug_commands(reg: SlashCommandRegistry) -> None:
+    """Register /tokens, /history, /tools debug commands."""
+
+    @slash_command("/tokens", description="Show session token/message stats", registry=reg)
+    async def cmd_tokens(ctx: CommandContext, args: str) -> None:
+        agent = ctx.agent
+        ctx.console.print(f"[bold]Session stats:[/bold]")
+        ctx.console.print(f"  User messages: {agent.user_message_count}")
+        ctx.console.print(f"  Tool calls:    {agent.tool_call_count}")
+        ctx.console.print(f"  History length: {len(agent.history)}")
+
+    @slash_command("/history", description="Show conversation history", registry=reg)
+    async def cmd_history(ctx: CommandContext, args: str) -> None:
+        if not ctx.agent.history:
+            ctx.console.print("[dim]No messages yet.[/dim]")
+            return
+        for i, msg in enumerate(ctx.agent.history):
+            role = getattr(msg, "role", "?")
+            tool_calls = getattr(msg, "tool_calls", None)
+            if tool_calls:
+                names = ", ".join(getattr(tc, "name", str(tc)) for tc in tool_calls)
+                ctx.console.print(f"  [{i}] {role}: [tool_calls: {names}]")
+            else:
+                content = str(getattr(msg, "content", "") or "")
+                preview = content[:80] + ("…" if len(content) > 80 else "")
+                ctx.console.print(f"  [{i}] {role}: {preview}")
+
+    @slash_command("/tools", description="List active tools and risk levels", registry=reg)
+    async def cmd_tools(ctx: CommandContext, args: str) -> None:
+        tools = ctx.agent.registry.list_tools()
+        if not tools:
+            ctx.console.print("[dim]No tools registered.[/dim]")
+            return
+        color_map = {"low": "green", "medium": "yellow", "high": "red"}
+        for tool in tools:
+            risk = tool.risk_level.value
+            color = color_map.get(risk, "white")
+            ctx.console.print(f"  [{color}]{risk:<6}[/{color}] {tool.name} — {tool.description}")
+
+
 def build_default_registry() -> SlashCommandRegistry:
     """Create a registry with all default commands."""
     reg = SlashCommandRegistry()
     _register_session_commands(reg)
+    _register_debug_commands(reg)
     return reg
