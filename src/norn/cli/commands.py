@@ -253,6 +253,16 @@ def _register_config_commands(reg: SlashCommandRegistry) -> None:
         ctx.console.print(Markdown(content))
 
 
+def build_slash_completer(registry: SlashCommandRegistry):
+    """Build a prompt_toolkit completer for slash commands."""
+    from prompt_toolkit.completion import WordCompleter
+
+    return WordCompleter(
+        registry.command_names(),
+        sentence=True,
+    )
+
+
 def build_default_registry() -> SlashCommandRegistry:
     """Create a registry with all default commands."""
     reg = SlashCommandRegistry()

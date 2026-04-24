@@ -248,3 +248,24 @@ async def test_mode_invalid(default_registry, config_ctx):
 async def test_flags_shows_list(default_registry, config_ctx):
     """``/flags`` should not raise."""
     await default_registry.dispatch(config_ctx, "/flags")
+
+
+# --- Tab autocompletion tests ---
+
+from prompt_toolkit.document import Document
+from norn.cli.commands import build_slash_completer
+
+
+def test_completer_returns_command_names():
+    """Completer should suggest command names when user types /."""
+    reg = build_default_registry()
+    completer = build_slash_completer(reg)
+    doc = Document(text="/", cursor_position=1)
+    # WordCompleter needs a CompleteEvent; pass None since WordCompleter doesn't use it
+    from unittest.mock import MagicMock
+
+    event = MagicMock()
+    completions = list(completer.get_completions(doc, event))
+    names = [c.text for c in completions]
+    assert "/help" in names
+    assert "/model" in names
