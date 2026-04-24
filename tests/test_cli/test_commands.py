@@ -134,3 +134,28 @@ async def test_clear_resets_history(default_registry, full_ctx):
 async def test_exit_raises(default_registry, full_ctx):
     with pytest.raises(_ExitRequested):
         await default_registry.dispatch(full_ctx, "/exit")
+
+
+@pytest.mark.asyncio
+async def test_model_no_args_shows_current(default_registry, full_ctx):
+    """``/model`` without args should show the current model."""
+    provider = MagicMock()
+    provider.model = "ollama/qwen3-coder:480b-cloud"
+    full_ctx.agent.llm = provider
+    # Should not raise
+    await default_registry.dispatch(full_ctx, "/model")
+
+
+@pytest.mark.asyncio
+async def test_model_switch(default_registry, full_ctx):
+    """``/model <name>`` should call provider_factory and swap agent.llm."""
+    old_provider = MagicMock()
+    old_provider.model = "ollama/old-model"
+    full_ctx.agent.llm = old_provider
+
+    new_provider = MagicMock()
+    full_ctx.provider_factory = MagicMock(return_value=new_provider)
+
+    await default_registry.dispatch(full_ctx, "/model ollama/qwen2.5-coder:14b")
+    full_ctx.provider_factory.assert_called_once_with("ollama/qwen2.5-coder:14b")
+    assert full_ctx.agent.llm is new_provider

@@ -86,8 +86,40 @@ class _ExitRequested(Exception):
     """Raised by /exit to signal the chat loop to stop."""
 
 
+async def _show_models(ctx: CommandContext) -> None:
+    """Display current model, router tiers, and local Ollama models."""
+    # Current model
+    model_name = getattr(ctx.agent, "llm", None)
+    if model_name is not None:
+        model_name = getattr(model_name, "model", None)
+    ctx.console.print(f"[bold]Current model:[/bold] {model_name or 'unknown'}")
+
+    # Router tiers
+    if ctx.config and hasattr(ctx.config, "router") and ctx.config.router:
+        tiers = getattr(ctx.config.router, "tiers", None)
+        if tiers:
+            ctx.console.print("[bold]Router tiers:[/bold]")
+            for tier_name, tier_cfg in tiers.items():
+                ctx.console.print(f"  {tier_name}: {tier_cfg.provider}/{tier_cfg.model}")
+
+    # Best-effort Ollama local models
+    try:
+        import httpx
+
+        resp = httpx.get("http://localhost:11434/api/tags", timeout=2.0)
+        if resp.status_code == 200:
+            data = resp.json()
+            models = [m.get("name", "?") for m in data.get("models", [])]
+            if models:
+                ctx.console.print("[bold]Local Ollama models:[/bold]")
+                for m in models:
+                    ctx.console.print(f"  {m}")
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def _register_session_commands(reg: SlashCommandRegistry) -> None:
-    """Register /help, /exit, /clear commands."""
+    """Register /help, /exit, /clear, /model commands."""
 
     @slash_command("/help", description="Show available commands", registry=reg)
     async def cmd_help(ctx: CommandContext, args: str) -> None:
@@ -103,6 +135,22 @@ def _register_session_commands(reg: SlashCommandRegistry) -> None:
         ctx.agent.user_message_count = 0
         ctx.agent.tool_call_count = 0
         ctx.console.print("[green]History cleared.[/green]")
+
+    @slash_command("/model", description="List models or switch provider", registry=reg)
+    async def cmd_model(ctx: CommandContext, args: str) -> None:
+        if not args.strip():
+            await _show_models(ctx)
+            return
+        model_str = args.strip()
+        if ctx.provider_factory is None:
+            ctx.console.print("[red]No provider factory available.[/red]")
+            return
+        try:
+            new_provider = ctx.provider_factory(model_str)
+            ctx.agent.llm = new_provider
+            ctx.console.print(f"[green]Switched to {model_str}[/green]")
+        except Exception as exc:  # noqa: BLE001
+            ctx.console.print(f"[red]Failed to switch model: {exc}[/red]")
 
 
 def build_default_registry() -> SlashCommandRegistry:
