@@ -193,9 +193,70 @@ def _register_debug_commands(reg: SlashCommandRegistry) -> None:
             ctx.console.print(f"  [{color}]{risk:<6}[/{color}] {tool.name} — {tool.description}")
 
 
+def _register_config_commands(reg: SlashCommandRegistry) -> None:
+    """Register /mode, /flags, /memory config commands."""
+
+    @slash_command("/mode", description="Show or switch permission mode", registry=reg)
+    async def cmd_mode(ctx: CommandContext, args: str) -> None:
+        from norn.core.config import PermissionMode
+
+        if not args.strip():
+            current = ctx.agent.permission_checker.mode
+            options = ", ".join(m.value for m in PermissionMode)
+            ctx.console.print(f"[bold]Current mode:[/bold] {current.value}")
+            ctx.console.print(f"[dim]Available: {options}[/dim]")
+            return
+        value = args.strip().lower()
+        try:
+            new_mode = PermissionMode(value)
+        except ValueError:
+            options = ", ".join(m.value for m in PermissionMode)
+            ctx.console.print(f"[red]Invalid mode '{value}'. Choose from: {options}[/red]")
+            return
+        ctx.agent.permission_checker.mode = new_mode
+        ctx.console.print(f"[green]Permission mode set to {new_mode.value}[/green]")
+
+    @slash_command("/flags", description="List or toggle feature flags", registry=reg)
+    async def cmd_flags(ctx: CommandContext, args: str) -> None:
+        fr = ctx.flag_registry
+        if fr is None:
+            ctx.console.print("[red]No flag registry available.[/red]")
+            return
+        if not args.strip():
+            flags = fr.list_flags()
+            if not flags:
+                ctx.console.print("[dim]No feature flags registered.[/dim]")
+                return
+            for flag in flags:
+                enabled = fr.is_enabled(flag.name)
+                status = "[green]ON[/green]" if enabled else "[red]OFF[/red]"
+                ctx.console.print(f"  {status}  {flag.name} — {flag.description}")
+            return
+        name = args.strip()
+        current = fr.is_enabled(name)
+        fr._config_overrides[name] = not current
+        new_state = "ON" if not current else "OFF"
+        ctx.console.print(f"[green]Flag '{name}' set to {new_state}[/green]")
+
+    @slash_command("/memory", description="Show memory contents", registry=reg)
+    async def cmd_memory(ctx: CommandContext, args: str) -> None:
+        from rich.markdown import Markdown
+
+        store = ctx.agent.memory_store
+        if store is None:
+            ctx.console.print("[dim]Memory is not enabled.[/dim]")
+            return
+        content = store.read_memory()
+        if not content:
+            ctx.console.print("[dim]Memory is empty.[/dim]")
+            return
+        ctx.console.print(Markdown(content))
+
+
 def build_default_registry() -> SlashCommandRegistry:
     """Create a registry with all default commands."""
     reg = SlashCommandRegistry()
     _register_session_commands(reg)
     _register_debug_commands(reg)
+    _register_config_commands(reg)
     return reg

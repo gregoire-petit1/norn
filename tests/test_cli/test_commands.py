@@ -181,3 +181,70 @@ async def test_tokens_shows_counts(default_registry, full_ctx):
 async def test_history_shows_messages(default_registry, full_ctx):
     """``/history`` should not raise."""
     await default_registry.dispatch(full_ctx, "/history")
+
+
+# --- Config commands tests ---
+
+from norn.core.config import NornConfig, PermissionMode
+
+
+@pytest.fixture
+def config_ctx():
+    agent = MagicMock()
+    agent.history = []
+    agent.user_message_count = 0
+    agent.tool_call_count = 0
+    agent.permission_checker = MagicMock()
+    agent.permission_checker.mode = PermissionMode.INTERACTIVE
+    agent.memory_store = None
+
+    config = NornConfig()
+
+    flag_registry = MagicMock()
+    flag_registry.list_flags.return_value = [
+        MagicMock(name="ml_tools", default=True, description="ML tools"),
+    ]
+    flag_registry.is_enabled.return_value = True
+    flag_registry._config_overrides = {}
+
+    return CommandContext(
+        agent=agent,
+        console=Console(file=None, force_terminal=False, no_color=True, width=120),
+        config=config,
+        provider_factory=None,
+        flag_registry=flag_registry,
+    )
+
+
+def test_default_registry_has_config_commands(default_registry):
+    names = default_registry.command_names()
+    assert "/mode" in names
+    assert "/flags" in names
+    assert "/memory" in names
+
+
+@pytest.mark.asyncio
+async def test_mode_shows_current(default_registry, config_ctx):
+    """``/mode`` without args should not raise."""
+    await default_registry.dispatch(config_ctx, "/mode")
+
+
+@pytest.mark.asyncio
+async def test_mode_switch(default_registry, config_ctx):
+    """``/mode yolo`` should switch permission mode."""
+    await default_registry.dispatch(config_ctx, "/mode yolo")
+    assert config_ctx.agent.permission_checker.mode == PermissionMode.YOLO
+
+
+@pytest.mark.asyncio
+async def test_mode_invalid(default_registry, config_ctx):
+    """``/mode badvalue`` should not crash."""
+    await default_registry.dispatch(config_ctx, "/mode badvalue")
+    # Should remain unchanged
+    assert config_ctx.agent.permission_checker.mode == PermissionMode.INTERACTIVE
+
+
+@pytest.mark.asyncio
+async def test_flags_shows_list(default_registry, config_ctx):
+    """``/flags`` should not raise."""
+    await default_registry.dispatch(config_ctx, "/flags")
