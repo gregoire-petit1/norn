@@ -19,6 +19,13 @@ from prompt_toolkit import PromptSession
 from prompt_toolkit.key_binding import KeyBindings
 
 from norn.cli.bench import bench_app
+from norn.cli.commands import (
+    CommandContext,
+    _ExitRequested,
+    build_default_registry,
+    build_slash_completer,
+)
+from norn.cli.errors import format_llm_error
 from norn.cli.logs import logs_app
 from norn.cli.renderer import StreamRenderer
 from norn.core.agent import AgentLoop
@@ -272,9 +279,23 @@ def chat(model: ModelOption = None, verbose: VerboseOption = False) -> None:
         max_tool_result_chars=config.agent.max_tool_result_chars,
     )
 
+    cmd_registry = build_default_registry()
+    cmd_ctx = CommandContext(
+        agent=agent,
+        console=console,
+        config=config,
+        provider_factory=lambda model_str: build_litellm_provider(
+            model_str.split("/")[0] if "/" in model_str else "ollama",
+            model_str.split("/", 1)[1] if "/" in model_str else model_str,
+            api_base=None,
+        ),
+        flag_registry=flag_registry,
+    )
+    completer = build_slash_completer(cmd_registry)
+
     console.print("[bold]Norn[/bold] - the coding agent that weaves your destiny")
     console.print(f"Permission mode: [bold]{config.permissions.mode.value}[/bold]")
-    console.print("Type 'exit' or 'quit' to leave. Alt+Enter for newlines. Ctrl+D to exit.\n")
+    console.print("Type /help for commands. Alt+Enter for newlines. Ctrl+D to exit.\n")
 
     async def _chat_loop() -> None:
         renderer = StreamRenderer(console)
@@ -289,6 +310,7 @@ def chat(model: ModelOption = None, verbose: VerboseOption = False) -> None:
             message="> ",
             multiline=False,  # Enter sends by default
             key_bindings=bindings,
+            completer=completer,
         )
 
         while True:
@@ -298,6 +320,15 @@ def chat(model: ModelOption = None, verbose: VerboseOption = False) -> None:
                 console.print("\nGoodbye.")
                 break
 
+            if user_input.strip().startswith("/"):
+                try:
+                    await cmd_registry.dispatch(cmd_ctx, user_input.strip())
+                except _ExitRequested:
+                    console.print("Goodbye.")
+                    break
+                continue
+
+            # Backward compat: bare exit/quit
             if user_input.strip().lower() in ("exit", "quit"):
                 console.print("Goodbye.")
                 break
@@ -312,7 +343,7 @@ def chat(model: ModelOption = None, verbose: VerboseOption = False) -> None:
             except KeyboardInterrupt:
                 console.print("\n[dim]Interrupted.[/dim]")
             except Exception as e:
-                console.print(f"[red]Error: {e}[/red]")
+                console.print(f"[red]{format_llm_error(e)}[/red]")
 
     asyncio.run(_chat_loop())
 
@@ -351,8 +382,11 @@ def run(
     )
 
     async def _run_once() -> None:
-        renderer = StreamRenderer(console)
-        await renderer.render(agent.run_stream(prompt))
+        try:
+            renderer = StreamRenderer(console)
+            await renderer.render(agent.run_stream(prompt))
+        except Exception as e:
+            console.print(f"[red]{format_llm_error(e)}[/red]")
 
     asyncio.run(_run_once())
 
