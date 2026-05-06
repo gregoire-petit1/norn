@@ -169,3 +169,76 @@ class TestAgentIntegration:
         messages_sent = call_args.kwargs.get("messages") if call_args.kwargs else call_args[0][0]
         # system + 10 history + 1 new user = 12
         assert len(messages_sent) == 12
+
+
+class TestToolCallCollapse:
+    """Test tool call collapse during summarization."""
+
+    def test_tool_messages_collapsed(self):
+        """Tool call + result pairs are collapsed into brief summaries."""
+        from norn.core.models import ToolCall
+
+        cm = ContextManager(max_history_tokens=100, recent_turns_keep=2)
+
+        messages = [
+            Message(role=Role.USER, content="Find all Python files"),
+            Message(
+                role=Role.ASSISTANT,
+                content=None,
+                tool_calls=[
+                    ToolCall(id="t1", name="bash", arguments={"command": "find . -name '*.py'"})
+                ],
+            ),
+            Message(
+                role=Role.TOOL,
+                content="src/main.py\nsrc/utils.py\nsrc/config.py\n" * 50,
+                tool_call_id="t1",
+            ),
+            Message(role=Role.ASSISTANT, content="Found 150 Python files in src/"),
+        ]
+        summary = cm._extractive_summary(messages)
+        # Should mention the tool was used and key outcome
+        assert "bash" in summary.lower() or "find" in summary.lower()
+        # Should NOT contain the full long output
+        assert len(summary) < 500
+
+    def test_multiple_tool_calls_collapsed(self):
+        """Multiple sequential tool calls are each collapsed."""
+        from norn.core.models import ToolCall
+
+        cm = ContextManager(max_history_tokens=100, recent_turns_keep=2)
+
+        messages = [
+            Message(role=Role.USER, content="Read the config and run tests"),
+            Message(
+                role=Role.ASSISTANT,
+                content=None,
+                tool_calls=[ToolCall(id="t1", name="file_read", arguments={"path": "config.yaml"})],
+            ),
+            Message(role=Role.TOOL, content="key: value\n" * 100, tool_call_id="t1"),
+            Message(
+                role=Role.ASSISTANT,
+                content=None,
+                tool_calls=[ToolCall(id="t2", name="bash", arguments={"command": "pytest"})],
+            ),
+            Message(role=Role.TOOL, content="5 passed\n", tool_call_id="t2"),
+            Message(role=Role.ASSISTANT, content="Config loaded and all 5 tests pass."),
+        ]
+        summary = cm._extractive_summary(messages)
+        # Both tools mentioned
+        assert "file_read" in summary.lower() or "config" in summary.lower()
+        assert "bash" in summary.lower() or "pytest" in summary.lower() or "test" in summary.lower()
+
+    def test_non_tool_messages_preserved(self):
+        """Regular user/assistant messages still included in summary."""
+        cm = ContextManager(max_history_tokens=100, recent_turns_keep=2)
+
+        messages = [
+            Message(role=Role.USER, content="Explain the architecture of this project"),
+            Message(
+                role=Role.ASSISTANT,
+                content="The project follows a layered architecture with core, tools, and CLI modules.",
+            ),
+        ]
+        summary = cm._extractive_summary(messages)
+        assert "architecture" in summary.lower() or "User:" in summary

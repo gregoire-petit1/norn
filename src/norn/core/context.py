@@ -123,19 +123,55 @@ class ContextManager:
         return response.content or ""
 
     def _extractive_summary(self, messages: list[Message]) -> str:
-        """Simple extractive summary when no LLM is available.
+        """Extractive summary with tool call collapse.
 
-        Keeps first user message + key assistant messages (non-tool).
+        Collapses tool_call + tool_result pairs into brief one-liners.
+        Preserves user questions and key assistant responses.
         """
         parts: list[str] = []
-        for msg in messages:
+        i = 0
+        while i < len(messages) and len(parts) < 12:
+            msg = messages[i]
+
             if msg.role == Role.USER and msg.content:
                 parts.append(f"- User: {msg.content[:100]}")
-            elif msg.role == Role.ASSISTANT and msg.content and len(msg.content) > 20:
-                parts.append(f"- Assistant: {msg.content[:80]}")
-            if len(parts) >= 10:
-                break
+            elif msg.role == Role.ASSISTANT:
+                if msg.tool_calls:
+                    # Collapse tool calls: show tool name + brief args + result preview
+                    for tc in msg.tool_calls:
+                        args_summary = self._summarize_tool_args(tc)
+                        # Look ahead for the matching tool result
+                        result_preview = ""
+                        for j in range(i + 1, min(i + 1 + len(msg.tool_calls) + 2, len(messages))):
+                            if messages[j].role == Role.TOOL and messages[j].tool_call_id == tc.id:
+                                result_content = messages[j].content or ""
+                                result_preview = result_content[:60].replace("\n", " ").strip()
+                                break
+                        parts.append(f"- Tool[{tc.name}]: {args_summary} -> {result_preview}")
+                elif msg.content and len(msg.content) > 20:
+                    parts.append(f"- Assistant: {msg.content[:80]}")
+            # Skip standalone TOOL messages (handled via look-ahead above)
+            i += 1
+
         return "\n".join(parts) if parts else "No prior context."
+
+    @staticmethod
+    def _summarize_tool_args(tool_call) -> str:
+        """Produce a brief summary of tool call arguments."""
+        args = tool_call.arguments
+        if "command" in args:
+            cmd = str(args["command"])
+            return cmd[:40] + ("..." if len(cmd) > 40 else "")
+        if "path" in args:
+            return str(args["path"])
+        if "file_path" in args:
+            return str(args["file_path"])
+        if "pattern" in args:
+            return str(args["pattern"])
+        for v in args.values():
+            if isinstance(v, str):
+                return v[:40]
+        return "..."
 
     def _estimate_tokens(self, messages: list[Message]) -> int:
         """Estimate token count for a list of messages.
