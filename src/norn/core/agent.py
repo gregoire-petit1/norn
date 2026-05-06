@@ -58,6 +58,10 @@ class AgentLoop:
         max_tool_result_chars: int = 8000,
         max_turn_output_chars: int = 30000,
         env_bootstrap: bool = True,
+        repo_map: bool = True,
+        repo_map_max_chars: int = 2000,
+        repo_map_languages: list[str] | None = None,
+        repo_map_exclude: list[str] | None = None,
         context_manager: ContextManager | None = None,
         tool_selector: ToolSelector | None = None,
     ) -> None:
@@ -83,6 +87,17 @@ class AgentLoop:
 
             snapshot = scan_environment(cwd)
             self._env_snapshot = snapshot.render()
+        # Repo map (W3.1)
+        self._repo_map: str | None = None
+        if repo_map:
+            from norn.core.repo_map import RepoMap
+
+            rm = RepoMap(
+                max_chars=repo_map_max_chars,
+                languages=repo_map_languages or ["python", "typescript"],
+                exclude_patterns=repo_map_exclude or [],
+            )
+            self._repo_map = rm.scan(cwd)
         # Session stats
         self.user_message_count = 0
         self.tool_call_count = 0
@@ -96,6 +111,8 @@ class AgentLoop:
                 prompt += "\n\n## Persistent Memory\n\n" + memory_content
         if self._env_snapshot:
             prompt += "\n\n" + self._env_snapshot
+        if self._repo_map:
+            prompt += "\n\n" + self._repo_map
         return prompt
 
     async def run(self, user_input: str) -> LLMResponse:

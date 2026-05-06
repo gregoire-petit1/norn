@@ -307,6 +307,10 @@ def chat(model: ModelOption = None, verbose: VerboseOption = False) -> None:
         max_tool_result_chars=config.agent.max_tool_result_chars,
         max_turn_output_chars=config.agent.max_turn_output_chars,
         env_bootstrap=config.agent.env_bootstrap,
+        repo_map=config.agent.repo_map,
+        repo_map_max_chars=config.agent.repo_map_max_chars,
+        repo_map_languages=config.agent.repo_map_languages,
+        repo_map_exclude=config.agent.repo_map_exclude,
         context_manager=context_manager,
         tool_selector=tool_selector,
     )
@@ -415,6 +419,10 @@ def run(
         max_tool_result_chars=config.agent.max_tool_result_chars,
         max_turn_output_chars=config.agent.max_turn_output_chars,
         env_bootstrap=config.agent.env_bootstrap,
+        repo_map=config.agent.repo_map,
+        repo_map_max_chars=config.agent.repo_map_max_chars,
+        repo_map_languages=config.agent.repo_map_languages,
+        repo_map_exclude=config.agent.repo_map_exclude,
         context_manager=context_manager,
         tool_selector=tool_selector,
     )

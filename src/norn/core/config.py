@@ -108,6 +108,23 @@ class AgentConfig(BaseModel):
     max_tool_result_chars: int = 8000
     max_turn_output_chars: int = 30000  # Per-turn budget across all tool calls
     env_bootstrap: bool = True  # Phase 10: inject environment snapshot
+    # W3.1: Repo Map
+    repo_map: bool = True
+    repo_map_max_chars: int = 2000
+    repo_map_languages: list[str] = Field(default_factory=lambda: ["python", "typescript"])
+    repo_map_exclude: list[str] = Field(
+        default_factory=lambda: [
+            ".venv/**",
+            "venv/**",
+            "node_modules/**",
+            "__pycache__/**",
+            "*.egg-info/**",
+            "dist/**",
+            "build/**",
+            "*_pb2.py",
+            "migrations/**",
+        ]
+    )
 
 
 class ContextConfig(BaseModel):
