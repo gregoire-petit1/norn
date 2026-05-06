@@ -109,11 +109,20 @@ class AgentConfig(BaseModel):
     env_bootstrap: bool = True  # Phase 10: inject environment snapshot
 
 
+class ContextConfig(BaseModel):
+    sliding_window: bool = False  # opt-in initially
+    max_history_tokens: int = 8000
+    recent_turns_keep: int = 6
+    summary_max_tokens: int = 300
+    summary_model: str | None = None  # None = use primary model
+
+
 class NornConfig(BaseModel):
     llm: LLMConfig = LLMConfig()
     permissions: PermissionsConfig = PermissionsConfig()
     flags: FlagsConfig = FlagsConfig()
     agent: AgentConfig = AgentConfig()
+    context: ContextConfig = ContextConfig()
     memory: MemorySystemConfig = MemorySystemConfig()
     coordinator: CoordinatorConfig = CoordinatorConfig()
     mcp: MCPConfig = MCPConfig()

@@ -94,3 +94,78 @@ class TestContextManager:
         messages = await cm.build_messages("System prompt", [])
         assert len(messages) == 1
         assert messages[0].content == "System prompt"
+
+
+class TestAgentIntegration:
+    """Test context manager integration with AgentLoop."""
+
+    @pytest.mark.asyncio
+    async def test_agent_uses_context_manager(self):
+        """AgentLoop with context_manager uses windowed messages."""
+        from unittest.mock import AsyncMock, MagicMock
+
+        from norn.core.agent import AgentLoop
+        from norn.core.context import ContextManager
+        from norn.core.models import LLMResponse, Message, Role
+
+        mock_llm = AsyncMock()
+        mock_llm.complete = AsyncMock(return_value=LLMResponse(content="ok"))
+        mock_registry = MagicMock()
+        mock_registry.get_schemas.return_value = []
+
+        cm = ContextManager(max_history_tokens=100, recent_turns_keep=2, enabled=True)
+
+        loop = AgentLoop(
+            llm=mock_llm,
+            registry=mock_registry,
+            cwd="/tmp",
+            context_manager=cm,
+            env_bootstrap=False,
+        )
+
+        # Simulate many prior turns
+        for i in range(20):
+            loop.history.append(Message(role=Role.USER, content=f"Q{i}: {'x' * 200}"))
+            loop.history.append(Message(role=Role.ASSISTANT, content=f"A{i}: {'y' * 200}"))
+
+        # Next turn should use windowed context
+        await loop.run("final question")
+
+        # Verify the messages sent to LLM are windowed (not 42+ messages)
+        call_args = mock_llm.complete.call_args
+        messages_sent = call_args.kwargs.get("messages") if call_args.kwargs else call_args[0][0]
+        # Should be system + summary + recent (2 turns × 2 = 4) + the new user msg
+        assert len(messages_sent) < 12
+
+    @pytest.mark.asyncio
+    async def test_agent_without_context_manager_sends_full(self):
+        """AgentLoop without context_manager sends full history."""
+        from unittest.mock import AsyncMock, MagicMock
+
+        from norn.core.agent import AgentLoop
+        from norn.core.models import LLMResponse, Message, Role
+
+        mock_llm = AsyncMock()
+        mock_llm.complete = AsyncMock(return_value=LLMResponse(content="ok"))
+        mock_registry = MagicMock()
+        mock_registry.get_schemas.return_value = []
+
+        loop = AgentLoop(
+            llm=mock_llm,
+            registry=mock_registry,
+            cwd="/tmp",
+            context_manager=None,
+            env_bootstrap=False,
+        )
+
+        # Add some history
+        for i in range(5):
+            loop.history.append(Message(role=Role.USER, content=f"Q{i}"))
+            loop.history.append(Message(role=Role.ASSISTANT, content=f"A{i}"))
+
+        await loop.run("final")
+
+        call_args = mock_llm.complete.call_args
+        messages_sent = call_args.kwargs.get("messages") if call_args.kwargs else call_args[0][0]
+        # system + 10 history + 1 new user = 12
+        assert len(messages_sent) == 12

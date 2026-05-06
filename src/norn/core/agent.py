@@ -7,6 +7,7 @@ import time
 from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING, Callable
 
+from norn.core.context import ContextManager
 from norn.core.models import (
     AgentEvent,
     EventType,
@@ -56,6 +57,7 @@ class AgentLoop:
         max_tool_result_chars: int = 8000,
         max_turn_output_chars: int = 30000,
         env_bootstrap: bool = True,
+        context_manager: ContextManager | None = None,
     ) -> None:
         self.llm = llm
         self.registry = registry
@@ -70,6 +72,7 @@ class AgentLoop:
         self._minify_tool_schemas = minify_tool_schemas
         self._max_tool_result_chars = max_tool_result_chars
         self._turn_budget = TurnBudgetTracker(max_chars_per_turn=max_turn_output_chars)
+        self._context_manager = context_manager
         # Environment bootstrap
         self._env_snapshot: str | None = None
         if env_bootstrap:
@@ -105,10 +108,15 @@ class AgentLoop:
         self.user_message_count += 1
         self.history.append(Message(role=Role.USER, content=user_input))
 
-        messages = [
-            Message(role=Role.SYSTEM, content=self._build_system_prompt()),
-            *self.history,
-        ]
+        if self._context_manager is not None:
+            messages = await self._context_manager.build_messages(
+                self._build_system_prompt(), self.history
+            )
+        else:
+            messages = [
+                Message(role=Role.SYSTEM, content=self._build_system_prompt()),
+                *self.history,
+            ]
 
         for _round in range(self._max_tool_rounds):
             self._turn_budget.reset()
@@ -178,10 +186,15 @@ class AgentLoop:
         self.user_message_count += 1
         self.history.append(Message(role=Role.USER, content=user_input))
 
-        messages: list[Message] = [
-            Message(role=Role.SYSTEM, content=self._build_system_prompt()),
-            *self.history,
-        ]
+        if self._context_manager is not None:
+            messages: list[Message] = await self._context_manager.build_messages(
+                self._build_system_prompt(), self.history
+            )
+        else:
+            messages: list[Message] = [
+                Message(role=Role.SYSTEM, content=self._build_system_prompt()),
+                *self.history,
+            ]
 
         for _round in range(self._max_tool_rounds):
             self._turn_budget.reset()
