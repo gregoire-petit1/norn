@@ -109,7 +109,7 @@ class TestAgentIntegration:
 
         loop._execute_tool = mock_execute  # type: ignore[method-assign]
 
-        result = await loop.run("test")
+        await loop.run("test")
 
         # With 5000 budget and 3 tools each producing 5K:
         # Tool 1: gets full 5000 (remaining = 0)

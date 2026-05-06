@@ -7,7 +7,6 @@ import time
 from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING, Callable
 
-from norn.core.context import ContextManager
 from norn.core.models import (
     AgentEvent,
     EventType,
@@ -24,6 +23,7 @@ from norn.observability import EventName, get_logger, measure_and_log
 from norn.tools.base import ToolContext, ToolResult
 
 if TYPE_CHECKING:
+    from norn.core.context import ContextManager
     from norn.core.llm import LLMProvider
     from norn.memory.session_logger import SessionLogger
     from norn.memory.store import MemoryStore
