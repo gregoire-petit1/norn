@@ -18,7 +18,7 @@ from norn.core.models import (
 )
 from norn.core.prompts import AGENT_SYSTEM_PROMPT
 from norn.core.tool_call_extractor import extract_tool_calls_from_text
-from norn.core.truncation import truncate_tool_output
+from norn.core.turn_budget import TurnBudgetTracker
 from norn.observability import EventName, get_logger, measure_and_log
 from norn.tools.base import ToolContext, ToolResult
 
@@ -54,6 +54,7 @@ class AgentLoop:
         max_tool_rounds: int | None = None,
         minify_tool_schemas: bool = True,
         max_tool_result_chars: int = 8000,
+        max_turn_output_chars: int = 30000,
         env_bootstrap: bool = True,
     ) -> None:
         self.llm = llm
@@ -68,6 +69,7 @@ class AgentLoop:
         self._max_tool_rounds = max_tool_rounds or self.DEFAULT_MAX_TOOL_ROUNDS
         self._minify_tool_schemas = minify_tool_schemas
         self._max_tool_result_chars = max_tool_result_chars
+        self._turn_budget = TurnBudgetTracker(max_chars_per_turn=max_turn_output_chars)
         # Environment bootstrap
         self._env_snapshot: str | None = None
         if env_bootstrap:
@@ -109,6 +111,8 @@ class AgentLoop:
         ]
 
         for _round in range(self._max_tool_rounds):
+            self._turn_budget.reset()
+
             response = await self.llm.complete(
                 messages=messages,
                 tools=self.registry.get_schemas(minify=self._minify_tool_schemas) or None,
@@ -150,7 +154,7 @@ class AgentLoop:
                 self.tool_call_count += 1
                 result = await self._execute_tool(call)
                 raw_content = result.output or result.error or ""
-                content = truncate_tool_output(raw_content, self._max_tool_result_chars)
+                content = self._turn_budget.allocate(raw_content, self._max_tool_result_chars)
                 tool_msg = Message(
                     role=Role.TOOL,
                     content=content,
@@ -180,6 +184,7 @@ class AgentLoop:
         ]
 
         for _round in range(self._max_tool_rounds):
+            self._turn_budget.reset()
             # --- Stream from LLM ---
             accumulated_content = ""
             accumulated_tool_calls: list[ToolCall] = []
@@ -243,7 +248,7 @@ class AgentLoop:
                 duration_ms = int((time.monotonic() - start) * 1000)
 
                 raw_content = result.output or result.error or ""
-                content = truncate_tool_output(raw_content, self._max_tool_result_chars)
+                content = self._turn_budget.allocate(raw_content, self._max_tool_result_chars)
 
                 tool_msg = Message(
                     role=Role.TOOL,

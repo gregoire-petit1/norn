@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from norn.core.turn_budget import TurnBudgetTracker
 
 
@@ -59,3 +61,61 @@ class TestTurnBudgetTracker:
         assert tracker.remaining == 10000
         tracker.allocate("x" * 3000, max_per_tool=8000)
         assert tracker.remaining == 7000
+
+
+class TestAgentIntegration:
+    """Test budget tracker integration with AgentLoop."""
+
+    @pytest.mark.asyncio
+    async def test_agent_respects_turn_budget(self):
+        """AgentLoop uses turn budget to cap multi-tool output."""
+        from unittest.mock import AsyncMock, MagicMock
+
+        from norn.core.agent import AgentLoop
+        from norn.core.models import LLMResponse, ToolCall
+        from norn.tools.base import ToolResult
+
+        mock_llm = AsyncMock()
+        mock_registry = MagicMock()
+        mock_registry.get_schemas.return_value = []
+
+        # First LLM call returns 3 tool calls, second returns text
+        tool_calls = [
+            ToolCall(id="t1", name="bash", arguments={"command": "echo hi"}),
+            ToolCall(id="t2", name="bash", arguments={"command": "echo bye"}),
+            ToolCall(id="t3", name="bash", arguments={"command": "echo end"}),
+        ]
+        mock_llm.complete = AsyncMock(
+            side_effect=[
+                LLMResponse(content=None, tool_calls=tool_calls),
+                LLMResponse(content="Done"),
+            ]
+        )
+
+        large_output = "x" * 5000
+
+        loop = AgentLoop(
+            llm=mock_llm,
+            registry=mock_registry,
+            cwd="/tmp",
+            max_turn_output_chars=5000,  # Budget: 5000 total
+            max_tool_result_chars=6000,  # Per-tool: 6000
+            env_bootstrap=False,
+        )
+
+        # Mock _execute_tool to return large output
+        async def mock_execute(call):
+            return ToolResult(output=large_output)
+
+        loop._execute_tool = mock_execute  # type: ignore[method-assign]
+
+        result = await loop.run("test")
+
+        # With 5000 budget and 3 tools each producing 5K:
+        # Tool 1: gets full 5000 (remaining = 0)
+        # Tool 2: remaining is 0, gets "budget exhausted" marker
+        # Tool 3: same
+        budget_msgs = [
+            m for m in loop.history if m.content and "budget exhausted" in m.content.lower()
+        ]
+        assert len(budget_msgs) >= 1

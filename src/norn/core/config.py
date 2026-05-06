@@ -105,6 +105,7 @@ class AgentConfig(BaseModel):
     max_tool_rounds: int = 25
     minify_tool_schemas: bool = True
     max_tool_result_chars: int = 8000
+    max_turn_output_chars: int = 30000  # Per-turn budget across all tool calls
     env_bootstrap: bool = True  # Phase 10: inject environment snapshot
 
 
