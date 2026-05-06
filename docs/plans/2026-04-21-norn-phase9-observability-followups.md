@@ -297,6 +297,47 @@ Phase 9 v2 design notes:
 
 ---
 
+## Phase 10 — Harness Engineering (2026-05-06)
+
+**Design:** `docs/plans/2026-05-06-norn-phase10-harness-engineering-design.md`
+**Plan:** `docs/plans/2026-05-06-norn-phase10-harness-engineering-implementation.md`
+**Inspiration:** KIRA (TerminalBench harness), Meta-Harness paper (arXiv:2603.28052v1)
+
+### Features delivered
+
+| Feature | Commits | Key files |
+|---------|---------|-----------|
+| **Env Bootstrap** — scan cwd, inject `[Environment]` into system prompt | `9f00f3a`, `9e96502` | `src/norn/core/env_bootstrap.py` |
+| **Per-Turn Output Budget** — cap total tool output per LLM round (30K default) | `1cc202a`, `d1c53b4` | `src/norn/core/turn_budget.py` |
+| **Domain-Aware Routing** — architecture/security/ML/debugging boost, simple question reduction | `ae85066` | `src/norn/core/router.py` |
+| **Sliding Window + Summarization** — token-budgeted history with extractive/LLM summary | `81e630f`, `6f4fb13` | `src/norn/core/context.py` |
+| **Config + CLI wiring** — all features configurable via `configs/default.yaml` | `556ad02` | `src/norn/cli/main.py`, `configs/default.yaml` |
+| **Lint cleanup** | `328fd8c` | — |
+
+### Bottom-line metrics
+
+- **Tests:** 560 (Phase 9 v2 close) → **752 passed** (+192 net, includes CLI UX/Slash/Bench/Phase 10)
+- **Phase 10 tests added:** ~26 (env_bootstrap: 10, turn_budget: 7, context_manager: 9, router_domain: 7 — some overlap with prior)
+- **Ruff:** Pre-existing errors on Phase 10 files: 4 (all pre-existing in agent.py). No new ruff violations introduced.
+- **Commits:** 9 commits on `main` (`9f00f3a..328fd8c`), no push
+
+### Config additions
+
+```yaml
+agent:
+  env_bootstrap: true
+  max_turn_output_chars: 30000
+context:
+  sliding_window: false  # opt-in
+  max_history_tokens: 8000
+  recent_turns_keep: 6
+  summary_max_tokens: 300
+router:
+  domain_routing: true
+```
+
+---
+
 ## Notes
 
 - This tracker is a living document — add new items as they emerge during
