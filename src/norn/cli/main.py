@@ -184,6 +184,19 @@ def _build_context_manager(config: NornConfig) -> ContextManager | None:
     )
 
 
+def _build_tool_selector(config: NornConfig):
+    """Build tool selector if dynamic tool selection is enabled."""
+    if not config.context.dynamic_tools:
+        return None
+    from norn.core.tool_selector import ToolSelector
+
+    return ToolSelector(
+        always_include=config.context.always_include_tools,
+        max_tools=config.context.max_tools_per_turn,
+        enabled=True,
+    )
+
+
 def _build_memory_store(config: NornConfig) -> MemoryStore | None:
     """Build memory store if memory is enabled."""
     if not config.memory.enabled:
@@ -281,6 +294,7 @@ def chat(model: ModelOption = None, verbose: VerboseOption = False) -> None:
     memory_store = _build_memory_store(config)
     session_logger = SessionLogger(memory_store) if memory_store else None
     context_manager = _build_context_manager(config)
+    tool_selector = _build_tool_selector(config)
     agent = AgentLoop(
         llm=provider,
         registry=registry,
@@ -294,6 +308,7 @@ def chat(model: ModelOption = None, verbose: VerboseOption = False) -> None:
         max_turn_output_chars=config.agent.max_turn_output_chars,
         env_bootstrap=config.agent.env_bootstrap,
         context_manager=context_manager,
+        tool_selector=tool_selector,
     )
 
     cmd_registry = build_default_registry()
@@ -387,6 +402,7 @@ def run(
     memory_store = _build_memory_store(config)
     session_logger = SessionLogger(memory_store) if memory_store else None
     context_manager = _build_context_manager(config)
+    tool_selector = _build_tool_selector(config)
     agent = AgentLoop(
         llm=provider,
         registry=registry,
@@ -400,6 +416,7 @@ def run(
         max_turn_output_chars=config.agent.max_turn_output_chars,
         env_bootstrap=config.agent.env_bootstrap,
         context_manager=context_manager,
+        tool_selector=tool_selector,
     )
 
     async def _run_once() -> None:

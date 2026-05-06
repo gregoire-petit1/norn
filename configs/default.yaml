@@ -52,6 +52,14 @@ context:
   recent_turns_keep: 6           # Always keep last N turns verbatim
   summary_max_tokens: 300        # Max tokens for summary of evicted turns
   summary_model: null            # null = use primary model for summarization
+  # Dynamic tool selection (W2.3)
+  dynamic_tools: false           # Opt-in: send only relevant tool schemas per turn
+  always_include_tools:          # Core tools always sent
+    - bash
+    - file_read
+    - file_edit
+    - file_write
+  max_tools_per_turn: 8          # Max tools sent per turn when dynamic_tools enabled
 
 router:
   enabled: false        # Phase 7: 3-tier routing (fast/standard/powerful) with technical-error fallback
