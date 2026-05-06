@@ -25,6 +25,7 @@ from norn.tools.base import ToolContext, ToolResult
 if TYPE_CHECKING:
     from norn.core.context import ContextManager
     from norn.core.llm import LLMProvider
+    from norn.core.tool_selector import ToolSelector
     from norn.memory.session_logger import SessionLogger
     from norn.memory.store import MemoryStore
     from norn.permissions.checker import PermissionChecker
@@ -58,6 +59,7 @@ class AgentLoop:
         max_turn_output_chars: int = 30000,
         env_bootstrap: bool = True,
         context_manager: ContextManager | None = None,
+        tool_selector: ToolSelector | None = None,
     ) -> None:
         self.llm = llm
         self.registry = registry
@@ -73,6 +75,7 @@ class AgentLoop:
         self._max_tool_result_chars = max_tool_result_chars
         self._turn_budget = TurnBudgetTracker(max_chars_per_turn=max_turn_output_chars)
         self._context_manager = context_manager
+        self._tool_selector = tool_selector
         # Environment bootstrap
         self._env_snapshot: str | None = None
         if env_bootstrap:
@@ -123,7 +126,7 @@ class AgentLoop:
 
             response = await self.llm.complete(
                 messages=messages,
-                tools=self.registry.get_schemas(minify=self._minify_tool_schemas) or None,
+                tools=self._get_tools_for_turn(messages),
             )
 
             if not response.has_tool_calls:
@@ -205,7 +208,7 @@ class AgentLoop:
 
             async for chunk in self.llm.stream(
                 messages=messages,
-                tools=self.registry.get_schemas(minify=self._minify_tool_schemas) or None,
+                tools=self._get_tools_for_turn(messages),
             ):
                 if chunk.content:
                     accumulated_content += chunk.content
@@ -283,6 +286,33 @@ class AgentLoop:
         # Safety: max tool rounds reached
         self.history.append(Message(role=Role.ASSISTANT, content="[Max tool rounds reached]"))
         yield AgentEvent(type=EventType.DONE)
+
+    def _get_tools_for_turn(self, messages: list[Message]) -> list[dict] | None:
+        """Get tool schemas for this turn, optionally filtered by selector."""
+        all_schemas = self.registry.get_schemas(minify=self._minify_tool_schemas)
+        if not all_schemas:
+            return None
+        if self._tool_selector is None:
+            return all_schemas
+
+        # Get the last user message for keyword matching
+        last_user_msg = ""
+        recent_context = ""
+        for msg in reversed(messages):
+            if msg.role == Role.USER and msg.content and not last_user_msg:
+                last_user_msg = msg.content
+            elif msg.role == Role.ASSISTANT and msg.content and not recent_context:
+                recent_context = msg.content
+            if last_user_msg and recent_context:
+                break
+
+        available_names = [s["name"] for s in all_schemas]
+        selected_names = self._tool_selector.select(
+            last_user_msg, available_names, recent_context=recent_context
+        )
+        selected_set = set(selected_names)
+        filtered = [s for s in all_schemas if s["name"] in selected_set]
+        return filtered or None
 
     async def _execute_tool(self, call: ToolCall) -> ToolResult:
         """Execute a single tool call, with optional permission check.

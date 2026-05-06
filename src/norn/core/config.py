@@ -116,6 +116,12 @@ class ContextConfig(BaseModel):
     recent_turns_keep: int = 6
     summary_max_tokens: int = 300
     summary_model: str | None = None  # None = use primary model
+    # Dynamic tool selection (W2.3)
+    dynamic_tools: bool = False
+    always_include_tools: list[str] = Field(
+        default_factory=lambda: ["bash", "file_read", "file_edit", "file_write"]
+    )
+    max_tools_per_turn: int = 8
 
 
 class NornConfig(BaseModel):

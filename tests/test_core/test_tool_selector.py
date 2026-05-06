@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from norn.core.tool_selector import ToolSelector
 
 
@@ -130,3 +132,62 @@ class TestToolSelector:
             recent_context="I fetched the documentation from the web",
         )
         assert "web_fetch" in selected or "web_search" in selected
+
+
+class TestAgentIntegration:
+    """Test tool selector integration with AgentLoop."""
+
+    @pytest.mark.asyncio
+    async def test_agent_sends_subset_of_tools(self):
+        """AgentLoop with tool_selector sends only selected tool schemas."""
+        from unittest.mock import AsyncMock, MagicMock
+
+        from norn.core.agent import AgentLoop
+        from norn.core.models import LLMResponse
+        from norn.core.tool_selector import ToolSelector
+
+        mock_llm = AsyncMock()
+        mock_llm.complete = AsyncMock(return_value=LLMResponse(content="ok"))
+
+        # Registry with many tools
+        mock_registry = MagicMock()
+        all_schemas = [
+            {"name": "bash", "description": "run bash"},
+            {"name": "file_read", "description": "read file"},
+            {"name": "file_edit", "description": "edit file"},
+            {"name": "file_write", "description": "write file"},
+            {"name": "grep", "description": "grep"},
+            {"name": "glob", "description": "glob"},
+            {"name": "web_fetch", "description": "fetch url"},
+            {"name": "web_search", "description": "search web"},
+            {"name": "model_inspector", "description": "inspect model"},
+        ]
+        mock_registry.get_schemas.return_value = all_schemas
+
+        selector = ToolSelector(
+            always_include=["bash", "file_read"],
+            max_tools=4,
+            enabled=True,
+        )
+
+        loop = AgentLoop(
+            llm=mock_llm,
+            registry=mock_registry,
+            cwd="/tmp",
+            tool_selector=selector,
+            env_bootstrap=False,
+        )
+
+        await loop.run("hello world")
+
+        # Verify tools sent to LLM were filtered
+        call_args = mock_llm.complete.call_args
+        tools_sent = (
+            call_args.kwargs.get("tools") if call_args.kwargs else call_args[1].get("tools")
+        )
+        assert tools_sent is not None
+        assert len(tools_sent) <= 4
+        # Core tools present
+        tool_names = [t["name"] for t in tools_sent]
+        assert "bash" in tool_names
+        assert "file_read" in tool_names
