@@ -34,6 +34,24 @@ _KEYWORD_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Domain patterns that benefit from POWERFUL tier (Phase 10)
+_DOMAIN_BOOST_PATTERNS: dict[str, re.Pattern[str]] = {
+    "architecture": re.compile(
+        r"\b(?:system design|microservice|database schema|API design|distributed)\b", re.IGNORECASE
+    ),
+    "security": re.compile(
+        r"\b(?:vulnerabilit|injection|XSS|CSRF|auth bypass|CVE|exploit)\b", re.IGNORECASE
+    ),
+    "ml_training": re.compile(
+        r"\b(?:training loop|loss function|gradient|backprop|hyperparameter)\b", re.IGNORECASE
+    ),
+    "debugging": re.compile(
+        r"\b(?:stack trace|segfault|deadlock|race condition|memory leak)\b", re.IGNORECASE
+    ),
+}
+
+_SIMPLE_PATTERN = re.compile(r"^(?:what|how|where|when|why|which)\s.{5,80}\?$", re.IGNORECASE)
+
 
 class Tier(StrEnum):
     """Routing tier — FAST (cheap/quick), STANDARD (default), POWERFUL (complex tasks)."""
@@ -43,7 +61,12 @@ class Tier(StrEnum):
     POWERFUL = "powerful"
 
 
-def _score_complexity(messages: list[Message], tools: list[dict]) -> tuple[int, dict[str, bool]]:
+def _score_complexity(
+    messages: list[Message],
+    tools: list[dict],
+    *,
+    domain_routing: bool = True,
+) -> tuple[int, dict[str, bool]]:
     """Compute the complexity score and the individual signals that contributed.
 
     Returns ``(score, signals)`` where ``signals`` is a flat dict of booleans
@@ -62,6 +85,18 @@ def _score_complexity(messages: list[Message], tools: list[dict]) -> tuple[int, 
         "many_tools": many_tools,
     }
     score = sum(1 for v in signals.values() if v)
+
+    # Domain-aware signals (Phase 10)
+    if domain_routing and last_content:
+        domain_boost = any(p.search(last_content) for p in _DOMAIN_BOOST_PATTERNS.values())
+        simple_pattern = bool(_SIMPLE_PATTERN.match(last_content))
+        signals["domain_boost"] = domain_boost
+        signals["simple_pattern"] = simple_pattern
+        if domain_boost:
+            score += 2
+        if simple_pattern:
+            score = max(0, score - 1)
+
     return score, signals
 
 
