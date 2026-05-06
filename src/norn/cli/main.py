@@ -30,6 +30,7 @@ from norn.cli.logs import logs_app
 from norn.cli.renderer import StreamRenderer
 from norn.core.agent import AgentLoop
 from norn.core.config import NornConfig
+from norn.core.context import ContextManager
 from norn.core.router import RouterProvider, Tier, build_litellm_provider
 from norn.flags.registry import FeatureFlag, FeatureFlagRegistry
 from norn.permissions.checker import PermissionChecker
@@ -171,6 +172,18 @@ def _build_flag_registry(config: NornConfig) -> FeatureFlagRegistry:
     return registry
 
 
+def _build_context_manager(config: NornConfig) -> ContextManager | None:
+    """Build context manager if sliding window is enabled."""
+    if not config.context.sliding_window:
+        return None
+    return ContextManager(
+        max_history_tokens=config.context.max_history_tokens,
+        recent_turns_keep=config.context.recent_turns_keep,
+        summary_max_tokens=config.context.summary_max_tokens,
+        enabled=True,
+    )
+
+
 def _build_memory_store(config: NornConfig) -> MemoryStore | None:
     """Build memory store if memory is enabled."""
     if not config.memory.enabled:
@@ -267,6 +280,7 @@ def chat(model: ModelOption = None, verbose: VerboseOption = False) -> None:
     checker = _build_permission_checker(config)
     memory_store = _build_memory_store(config)
     session_logger = SessionLogger(memory_store) if memory_store else None
+    context_manager = _build_context_manager(config)
     agent = AgentLoop(
         llm=provider,
         registry=registry,
@@ -277,6 +291,9 @@ def chat(model: ModelOption = None, verbose: VerboseOption = False) -> None:
         max_tool_rounds=config.agent.max_tool_rounds,
         minify_tool_schemas=config.agent.minify_tool_schemas,
         max_tool_result_chars=config.agent.max_tool_result_chars,
+        max_turn_output_chars=config.agent.max_turn_output_chars,
+        env_bootstrap=config.agent.env_bootstrap,
+        context_manager=context_manager,
     )
 
     cmd_registry = build_default_registry()
@@ -369,6 +386,7 @@ def run(
     checker = _build_permission_checker(config)
     memory_store = _build_memory_store(config)
     session_logger = SessionLogger(memory_store) if memory_store else None
+    context_manager = _build_context_manager(config)
     agent = AgentLoop(
         llm=provider,
         registry=registry,
@@ -379,6 +397,9 @@ def run(
         max_tool_rounds=config.agent.max_tool_rounds,
         minify_tool_schemas=config.agent.minify_tool_schemas,
         max_tool_result_chars=config.agent.max_tool_result_chars,
+        max_turn_output_chars=config.agent.max_turn_output_chars,
+        env_bootstrap=config.agent.env_bootstrap,
+        context_manager=context_manager,
     )
 
     async def _run_once() -> None:

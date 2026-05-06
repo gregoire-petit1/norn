@@ -87,6 +87,7 @@ class RouterTierConfig(BaseModel):
 
 class RouterConfig(BaseModel):
     enabled: bool = False
+    domain_routing: bool = True  # Phase 10: domain-aware routing signals
     tiers: dict[str, RouterTierConfig] = Field(default_factory=dict)
 
 
