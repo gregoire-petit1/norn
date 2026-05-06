@@ -105,6 +105,7 @@ class AgentConfig(BaseModel):
     max_tool_rounds: int = 25
     minify_tool_schemas: bool = True
     max_tool_result_chars: int = 8000
+    env_bootstrap: bool = True  # Phase 10: inject environment snapshot
 
 
 class NornConfig(BaseModel):

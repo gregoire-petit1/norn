@@ -54,6 +54,7 @@ class AgentLoop:
         max_tool_rounds: int | None = None,
         minify_tool_schemas: bool = True,
         max_tool_result_chars: int = 8000,
+        env_bootstrap: bool = True,
     ) -> None:
         self.llm = llm
         self.registry = registry
@@ -67,6 +68,13 @@ class AgentLoop:
         self._max_tool_rounds = max_tool_rounds or self.DEFAULT_MAX_TOOL_ROUNDS
         self._minify_tool_schemas = minify_tool_schemas
         self._max_tool_result_chars = max_tool_result_chars
+        # Environment bootstrap
+        self._env_snapshot: str | None = None
+        if env_bootstrap:
+            from norn.core.env_bootstrap import scan_environment
+
+            snapshot = scan_environment(cwd)
+            self._env_snapshot = snapshot.render()
         # Session stats
         self.user_message_count = 0
         self.tool_call_count = 0
@@ -78,6 +86,8 @@ class AgentLoop:
             memory_content = self.memory_store.read_memory()
             if memory_content.strip():
                 prompt += "\n\n## Persistent Memory\n\n" + memory_content
+        if self._env_snapshot:
+            prompt += "\n\n" + self._env_snapshot
         return prompt
 
     async def run(self, user_input: str) -> LLMResponse:

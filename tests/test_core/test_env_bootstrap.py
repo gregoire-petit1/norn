@@ -117,3 +117,45 @@ class TestScanEnvironment:
         (tmp_path / ".venv").mkdir()
         result = scan_environment(str(tmp_path))
         assert result.venv_active is True
+
+
+class TestAgentIntegration:
+    """Test env bootstrap integration with AgentLoop."""
+
+    def test_system_prompt_includes_snapshot(self, tmp_path: Path):
+        """When env_bootstrap=True, system prompt contains [Environment] block."""
+        from unittest.mock import MagicMock
+
+        from norn.core.agent import AgentLoop
+
+        mock_llm = MagicMock()
+        mock_registry = MagicMock()
+        mock_registry.get_schemas.return_value = []
+
+        loop = AgentLoop(
+            llm=mock_llm,
+            registry=mock_registry,
+            cwd=str(tmp_path),
+            env_bootstrap=True,
+        )
+        prompt = loop._build_system_prompt()
+        assert "[Environment]" in prompt
+
+    def test_system_prompt_excludes_snapshot_when_disabled(self, tmp_path: Path):
+        """When env_bootstrap=False, no [Environment] block."""
+        from unittest.mock import MagicMock
+
+        from norn.core.agent import AgentLoop
+
+        mock_llm = MagicMock()
+        mock_registry = MagicMock()
+        mock_registry.get_schemas.return_value = []
+
+        loop = AgentLoop(
+            llm=mock_llm,
+            registry=mock_registry,
+            cwd=str(tmp_path),
+            env_bootstrap=False,
+        )
+        prompt = loop._build_system_prompt()
+        assert "[Environment]" not in prompt
