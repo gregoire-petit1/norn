@@ -1,0 +1,84 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" fill="none" role="img" aria-label="Norn">
+  <defs>
+    <!-- Post gradient: ice-light top → ice-deep bottom -->
+    <linearGradient id="g-post" x1="0" y1="0" x2="0" y2="1" gradientUnits="objectBoundingBox">
+      <stop offset="0%"   stop-color="#9ECFE0"/>
+      <stop offset="45%"  stop-color="#7FB8D6"/>
+      <stop offset="100%" stop-color="#2A5270"/>
+    </linearGradient>
+    <!-- Gold glow for Urðr thread -->
+    <filter id="f-gold" x="-60%" y="-60%" width="220%" height="220%">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="2.5" result="b"/>
+      <feColorMatrix in="b" type="matrix"
+        values="1 0.5 0 0 0.1
+                0.7 0.4 0 0 0.05
+                0   0   0 0 0
+                0   0   0 0.8 0" result="colored"/>
+      <feMerge>
+        <feMergeNode in="colored"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <!-- Subtle ice glow -->
+    <filter id="f-ice" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="1.5" result="b"/>
+      <feMerge>
+        <feMergeNode in="b"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <clipPath id="clip-canvas">
+      <rect width="100" height="100" rx="16"/>
+    </clipPath>
+  </defs>
+
+  <!-- Background -->
+  <rect width="100" height="100" rx="16" fill="#0A1520"/>
+  <!-- Subtle vignette -->
+  <rect width="100" height="100" rx="16" fill="none" stroke="#1C3A52" stroke-width="1.5"/>
+
+  <!-- ═══ LEFT POST (loom / Yggdrasil trunk) ═══ -->
+  <rect x="9" y="7" width="14" height="86" rx="3" fill="url(#g-post)"/>
+  <!-- Runic serifs – top & bottom crossbars -->
+  <line x1="5"  y1="8"  x2="27" y2="8"  stroke="#8FC8DA" stroke-width="2.5" stroke-linecap="round"/>
+  <line x1="5"  y1="92" x2="27" y2="92" stroke="#2A5270" stroke-width="2"   stroke-linecap="round"/>
+  <!-- Inner shadow on left edge of post (depth illusion) -->
+  <rect x="9" y="7" width="3" height="86" rx="2" fill="#0A1520" opacity="0.25"/>
+
+  <!-- ═══ RIGHT POST ═══ -->
+  <rect x="77" y="7" width="14" height="86" rx="3" fill="url(#g-post)"/>
+  <line x1="73" y1="8"  x2="95" y2="8"  stroke="#8FC8DA" stroke-width="2.5" stroke-linecap="round"/>
+  <line x1="73" y1="92" x2="95" y2="92" stroke="#2A5270" stroke-width="2"   stroke-linecap="round"/>
+  <rect x="88" y="7" width="3" height="86" rx="2" fill="#0A1520" opacity="0.25"/>
+
+  <!-- ═══ THREE NORN THREADS (drawn low → high z-order) ═══ -->
+
+  <!-- Thread 3 – Skuld (Future, ice-deep) -->
+  <line x1="23" y1="38" x2="77" y2="86" stroke="#3A6B8A" stroke-width="2.5"
+        stroke-linecap="round" opacity="0.85"/>
+
+  <!-- Thread 2 – Verðandi (Present, ice-light) -->
+  <line x1="23" y1="22" x2="77" y2="70" stroke="#9ECFE0" stroke-width="3"
+        stroke-linecap="round" filter="url(#f-ice)" opacity="0.9"/>
+
+  <!-- Thread 1 – Urðr (Past, gold) – primary N diagonal, foreground -->
+  <line x1="23" y1="12" x2="77" y2="88" stroke="#E8C77A" stroke-width="4"
+        stroke-linecap="round" filter="url(#f-gold)"/>
+
+  <!-- ═══ KNOT POINTS – where threads are tied to posts ═══ -->
+  <!-- Left post attachment ring (top to bottom) -->
+  <circle cx="23" cy="12" r="4"   fill="#0A1520" stroke="#E8C77A" stroke-width="2"/>
+  <circle cx="23" cy="12" r="1.5" fill="#E8C77A"/>
+  <circle cx="23" cy="22" r="3"   fill="#0A1520" stroke="#9ECFE0" stroke-width="1.8"/>
+  <circle cx="23" cy="22" r="1"   fill="#9ECFE0"/>
+  <circle cx="23" cy="38" r="2.5" fill="#0A1520" stroke="#3A6B8A" stroke-width="1.5"/>
+  <circle cx="23" cy="38" r="0.8" fill="#3A6B8A"/>
+
+  <!-- Right post attachment ring (top to bottom) -->
+  <circle cx="77" cy="70" r="3"   fill="#0A1520" stroke="#9ECFE0" stroke-width="1.8"/>
+  <circle cx="77" cy="70" r="1"   fill="#9ECFE0"/>
+  <circle cx="77" cy="86" r="3"   fill="#0A1520" stroke="#3A6B8A" stroke-width="1.5"/>
+  <circle cx="77" cy="86" r="0.8" fill="#3A6B8A"/>
+  <circle cx="77" cy="88" r="4"   fill="#0A1520" stroke="#E8C77A" stroke-width="2"/>
+  <circle cx="77" cy="88" r="1.5" fill="#E8C77A"/>
+</svg>
