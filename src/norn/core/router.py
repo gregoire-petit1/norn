@@ -315,9 +315,6 @@ class RouterProvider:
         msg = "No providers configured for routing"
         raise RuntimeError(msg)
 
-    # TODO(phase7+): support pre-first-chunk fallback in stream() for technical errors.
-    # Current design: no fallback (avoids stream corruption). If first chunk hasn't been
-    # yielded yet, falling back is safe — implement when needed.
     async def stream(
         self,
         messages: list[Message],
@@ -326,10 +323,69 @@ class RouterProvider:
         max_tokens: int = 4096,
         tier_override: Tier | None = None,
     ) -> AsyncIterator[StreamChunk]:
-        tier = tier_override or self.default_tier or _classify_complexity(messages, tools or [])
-        provider = self._providers.get(tier)
-        if provider is None:
-            msg = f"No provider configured for tier {tier}"
-            raise RuntimeError(msg)
-        async for chunk in provider.stream(messages, tools, temperature, max_tokens):
-            yield chunk
+        """Stream with pre-first-chunk fallback across tiers.
+
+        Fallback is safe here because ``LiteLLMProvider.stream()`` is an async
+        generator: the upstream connection (``await completion(**kwargs)``) is
+        established on the FIRST ``__anext__`` call. Any error before we yield
+        a chunk to OUR caller means no partial output has been sent, so we can
+        transparently retry or escalate without corrupting the stream.
+
+        Once at least one chunk is yielded downstream we commit to the current
+        provider — mid-stream switching would corrupt the response.
+        """
+        start_tier = tier_override or self.default_tier or _classify_complexity(
+            messages, tools or []
+        )
+        try:
+            start_index = _FALLBACK_ORDER.index(start_tier.value)
+        except ValueError:
+            start_index = 0
+        tiers_to_try = [
+            Tier(t) for t in _FALLBACK_ORDER[start_index:] if Tier(t) in self._providers
+        ]
+
+        last_exc: Exception | None = None
+        for idx, tier in enumerate(tiers_to_try):
+            provider = self._providers[tier]
+            next_tier_name = (
+                tiers_to_try[idx + 1].value if idx + 1 < len(tiers_to_try) else None
+            )
+            with structlog.contextvars.bound_contextvars(tier=tier.value):
+                # Try up to twice per tier: once, then once more after 62s on rate-limit.
+                for attempt in range(2):
+                    yielded = False
+                    try:
+                        async for chunk in provider.stream(messages, tools, temperature, max_tokens):
+                            yielded = True
+                            yield chunk
+                        return  # stream completed successfully
+                    except Exception as exc:  # noqa: BLE001
+                        if yielded:
+                            raise  # mid-stream: cannot recover, propagate
+                        last_exc = exc
+                        if _is_rate_limit_error(exc) and attempt == 0:
+                            with contextlib.suppress(Exception):
+                                _log.info(
+                                    "router.stream_rate_limit_retry",
+                                    tier=tier.value,
+                                    wait_s=62,
+                                )
+                            await asyncio.sleep(62)
+                            continue  # retry same tier
+                        if _is_technical_error(exc):
+                            with contextlib.suppress(Exception):
+                                _log.warning(
+                                    EventName.FALLBACK,
+                                    from_tier=tier.value,
+                                    to_tier=next_tier_name,
+                                    error_type=type(exc).__name__,
+                                    error_message=str(exc),
+                                )
+                            break  # escalate to next tier
+                        raise  # non-technical: propagate immediately
+
+        if last_exc is not None:
+            raise last_exc
+        msg = "No providers configured for routing"
+        raise RuntimeError(msg)
