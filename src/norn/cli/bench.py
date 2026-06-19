@@ -222,6 +222,16 @@ def bench_run(
     config_overrides: dict = {
         "permissions": {"mode": "yolo"},
         "agent": {"max_tool_rounds": 20},
+        # Enable router so Ollama session-limit errors auto-fall back to Groq.
+        "router": {
+            "enabled": True,
+            "domain_routing": True,
+            "tiers": {
+                "fast": {"provider": "ollama", "model": "qwen3-coder:480b-cloud", "api_base": None},
+                "standard": {"provider": "groq", "model": "llama-3.3-70b-versatile", "api_base": None},
+                "powerful": {"provider": "groq", "model": "llama-3.3-70b-versatile", "api_base": None},
+            },
+        },
     }
     if model:
         config_overrides["llm"] = {"model": model}

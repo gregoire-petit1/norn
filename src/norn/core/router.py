@@ -133,6 +133,10 @@ _TECHNICAL_ERROR_SIGNALS = (
     "rate limit",
     "http error",  # was "http" — too broad, matched URLs and unrelated errors
     "httpx",  # litellm raises httpx.HTTPError-derived exceptions
+    # Ollama cloud session cap: surfaces inside APIConnectionError body.
+    # Must trigger fallback, not crash.
+    "session usage limit",
+    "reached your session",
 )
 
 _FALLBACK_ORDER: list[str] = ["fast", "standard", "powerful"]
@@ -162,6 +166,8 @@ def build_litellm_provider(
         prefixed_model = f"ollama/{model}"
     elif provider == "openrouter":
         prefixed_model = f"openrouter/{model}"
+    elif provider == "groq":
+        prefixed_model = f"groq/{model}"
     return LiteLLMProvider(
         model=prefixed_model,
         api_base=api_base,

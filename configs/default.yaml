@@ -83,13 +83,13 @@ router:
   tiers:
     fast:
       provider: "ollama"
-      model: "qwen2.5-coder:7b"
+      model: "qwen3-coder:480b-cloud"
     standard:
-      provider: "openrouter"
-      model: "stepfun/step-3.5-flash:free"
+      provider: "groq"
+      model: "llama-3.3-70b-versatile"
     powerful:
-      provider: "openrouter"
-      model: "anthropic/claude-sonnet-4"
+      provider: "groq"
+      model: "llama-3.3-70b-versatile"
 
 logging:
   enabled: true
