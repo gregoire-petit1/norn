@@ -247,6 +247,10 @@ def bench_run(
     console.print(f"[bold]Running {len(tasks)} benchmark tasks...[/bold]\n")
 
     for i, task in enumerate(tasks, 1):
+        # Brief pause between tasks so Groq/Ollama TPM windows partially reset.
+        if i > 1:
+            import time as _time
+            _time.sleep(5)
         console.print(f"[{i}/{len(tasks)}] {task.id}...", end=" ")
         sandbox = create_sandbox(task)
         try:

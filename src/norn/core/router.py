@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import logging
 import re
@@ -139,6 +140,8 @@ _TECHNICAL_ERROR_SIGNALS = (
     "reached your session",
 )
 
+_RATE_LIMIT_SIGNALS = ("429", "rate limit", "too many requests", "session usage limit", "reached your session")
+
 _FALLBACK_ORDER: list[str] = ["fast", "standard", "powerful"]
 
 
@@ -146,6 +149,12 @@ def _is_technical_error(exc: Exception) -> bool:
     """Return True if the exception is a retryable technical error."""
     msg = str(exc).lower()
     return any(signal in msg for signal in _TECHNICAL_ERROR_SIGNALS)
+
+
+def _is_rate_limit_error(exc: Exception) -> bool:
+    """True for 429 / session-cap errors specifically (subset of technical errors)."""
+    msg = str(exc).lower()
+    return any(signal in msg for signal in _RATE_LIMIT_SIGNALS)
 
 
 def build_litellm_provider(
@@ -270,6 +279,12 @@ class RouterProvider:
                 except Exception as exc:  # noqa: BLE001
                     if _is_technical_error(exc):
                         last_exc = exc
+                        # Rate-limit on this tier: wait before escalating so the
+                        # next provider's TPM window has a chance to clear.
+                        if _is_rate_limit_error(exc):
+                            with contextlib.suppress(Exception):
+                                _log.info("router.rate_limit_backoff", tier=tier.value, wait_s=8)
+                            await asyncio.sleep(8)
                         next_tier = (
                             tiers_to_try[idx + 1].value if idx + 1 < len(tiers_to_try) else None
                         )
