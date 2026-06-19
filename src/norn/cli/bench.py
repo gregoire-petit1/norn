@@ -250,7 +250,7 @@ def bench_run(
         # Brief pause between tasks so Groq/Ollama TPM windows partially reset.
         if i > 1:
             import time as _time
-            _time.sleep(5)
+            _time.sleep(10)
         console.print(f"[{i}/{len(tasks)}] {task.id}...", end=" ")
         sandbox = create_sandbox(task)
         try:

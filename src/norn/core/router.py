@@ -270,35 +270,45 @@ class RouterProvider:
         last_exc: Exception | None = None
         for idx, tier in enumerate(tiers_to_try):
             provider = self._providers[tier]
+            next_tier_name = (
+                tiers_to_try[idx + 1].value if idx + 1 < len(tiers_to_try) else None
+            )
             # Bind ``tier`` into the structlog contextvar stack so nested
             # ``llm.complete`` events inherit it. ``bound_contextvars`` restores
             # the prior state on exit — no leak into unrelated call sites.
             with structlog.contextvars.bound_contextvars(tier=tier.value):
-                try:
-                    return await provider.complete(messages, tools, temperature, max_tokens)
-                except Exception as exc:  # noqa: BLE001
-                    if _is_technical_error(exc):
+                # Try this tier up to twice: initial call, then one retry after a
+                # 62s wait on rate-limit (TPM window resets per minute). Avoids
+                # burning the fallback tier on the same Groq quota bucket.
+                escalate = False
+                for attempt in range(2):
+                    try:
+                        return await provider.complete(messages, tools, temperature, max_tokens)
+                    except Exception as exc:  # noqa: BLE001
                         last_exc = exc
-                        # Rate-limit on this tier: wait before escalating so the
-                        # next provider's TPM window has a chance to clear.
-                        if _is_rate_limit_error(exc):
+                        if _is_rate_limit_error(exc) and attempt == 0:
                             with contextlib.suppress(Exception):
-                                _log.info("router.rate_limit_backoff", tier=tier.value, wait_s=8)
-                            await asyncio.sleep(8)
-                        next_tier = (
-                            tiers_to_try[idx + 1].value if idx + 1 < len(tiers_to_try) else None
-                        )
-                        # Fail-open: never let logging crash the fallback path.
-                        with contextlib.suppress(Exception):
-                            _log.warning(
-                                EventName.FALLBACK,
-                                from_tier=tier.value,
-                                to_tier=next_tier,
-                                error_type=type(exc).__name__,
-                                error_message=str(exc),
-                            )
-                        continue
-                    raise
+                                _log.info(
+                                    "router.rate_limit_retry",
+                                    tier=tier.value,
+                                    wait_s=62,
+                                )
+                            await asyncio.sleep(62)
+                            continue  # retry same tier
+                        if _is_technical_error(exc):
+                            with contextlib.suppress(Exception):
+                                _log.warning(
+                                    EventName.FALLBACK,
+                                    from_tier=tier.value,
+                                    to_tier=next_tier_name,
+                                    error_type=type(exc).__name__,
+                                    error_message=str(exc),
+                                )
+                            escalate = True
+                            break
+                        raise
+                if not escalate:
+                    continue  # both attempts exhausted — try next tier anyway
 
         if last_exc is not None:
             raise last_exc
