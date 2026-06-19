@@ -277,38 +277,21 @@ class RouterProvider:
             # ``llm.complete`` events inherit it. ``bound_contextvars`` restores
             # the prior state on exit — no leak into unrelated call sites.
             with structlog.contextvars.bound_contextvars(tier=tier.value):
-                # Try this tier up to twice: initial call, then one retry after a
-                # 62s wait on rate-limit (TPM window resets per minute). Avoids
-                # burning the fallback tier on the same Groq quota bucket.
-                escalate = False
-                for attempt in range(2):
-                    try:
-                        return await provider.complete(messages, tools, temperature, max_tokens)
-                    except Exception as exc:  # noqa: BLE001
-                        last_exc = exc
-                        if _is_rate_limit_error(exc) and attempt == 0:
-                            with contextlib.suppress(Exception):
-                                _log.info(
-                                    "router.rate_limit_retry",
-                                    tier=tier.value,
-                                    wait_s=62,
-                                )
-                            await asyncio.sleep(62)
-                            continue  # retry same tier
-                        if _is_technical_error(exc):
-                            with contextlib.suppress(Exception):
-                                _log.warning(
-                                    EventName.FALLBACK,
-                                    from_tier=tier.value,
-                                    to_tier=next_tier_name,
-                                    error_type=type(exc).__name__,
-                                    error_message=str(exc),
-                                )
-                            escalate = True
-                            break
-                        raise
-                if not escalate:
-                    continue  # both attempts exhausted — try next tier anyway
+                try:
+                    return await provider.complete(messages, tools, temperature, max_tokens)
+                except Exception as exc:  # noqa: BLE001
+                    last_exc = exc
+                    if _is_technical_error(exc):
+                        with contextlib.suppress(Exception):
+                            _log.warning(
+                                EventName.FALLBACK,
+                                from_tier=tier.value,
+                                to_tier=next_tier_name,
+                                error_type=type(exc).__name__,
+                                error_message=str(exc),
+                            )
+                        continue  # escalate to next tier
+                    raise
 
         if last_exc is not None:
             raise last_exc
@@ -352,38 +335,27 @@ class RouterProvider:
                 tiers_to_try[idx + 1].value if idx + 1 < len(tiers_to_try) else None
             )
             with structlog.contextvars.bound_contextvars(tier=tier.value):
-                # Try up to twice per tier: once, then once more after 62s on rate-limit.
-                for attempt in range(2):
-                    yielded = False
-                    try:
-                        async for chunk in provider.stream(messages, tools, temperature, max_tokens):
-                            yielded = True
-                            yield chunk
-                        return  # stream completed successfully
-                    except Exception as exc:  # noqa: BLE001
-                        if yielded:
-                            raise  # mid-stream: cannot recover, propagate
-                        last_exc = exc
-                        if _is_rate_limit_error(exc) and attempt == 0:
-                            with contextlib.suppress(Exception):
-                                _log.info(
-                                    "router.stream_rate_limit_retry",
-                                    tier=tier.value,
-                                    wait_s=62,
-                                )
-                            await asyncio.sleep(62)
-                            continue  # retry same tier
-                        if _is_technical_error(exc):
-                            with contextlib.suppress(Exception):
-                                _log.warning(
-                                    EventName.FALLBACK,
-                                    from_tier=tier.value,
-                                    to_tier=next_tier_name,
-                                    error_type=type(exc).__name__,
-                                    error_message=str(exc),
-                                )
-                            break  # escalate to next tier
-                        raise  # non-technical: propagate immediately
+                yielded = False
+                try:
+                    async for chunk in provider.stream(messages, tools, temperature, max_tokens):
+                        yielded = True
+                        yield chunk
+                    return  # stream completed successfully
+                except Exception as exc:  # noqa: BLE001
+                    if yielded:
+                        raise  # mid-stream: cannot recover, propagate
+                    last_exc = exc
+                    if _is_technical_error(exc):
+                        with contextlib.suppress(Exception):
+                            _log.warning(
+                                EventName.FALLBACK,
+                                from_tier=tier.value,
+                                to_tier=next_tier_name,
+                                error_type=type(exc).__name__,
+                                error_message=str(exc),
+                            )
+                        continue  # escalate to next tier
+                    raise  # non-technical: propagate immediately
 
         if last_exc is not None:
             raise last_exc

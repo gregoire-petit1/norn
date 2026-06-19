@@ -384,24 +384,19 @@ async def test_router_stream_with_tier_override():
 
 @pytest.mark.asyncio
 async def test_router_stream_fallback_on_rate_limit_before_first_chunk():
-    """stream() must fall back to next tier when fast tier is rate-limited.
+    """stream() falls back immediately to next tier when fast tier is rate-limited.
 
     Regression guard for bench runs 8-11: norn uses run_stream() which calls
     RouterProvider.stream(). The old implementation had no fallback in stream(),
     so Ollama session-cap errors propagated immediately instead of falling back
     to Groq. This caused 4-9/16 pass rates when Ollama quota was exhausted.
     """
-    from unittest.mock import AsyncMock, patch as _patch
-
     from norn.core.models import StreamChunk
 
     config = _make_router_config()
     router = RouterProvider(config)
 
-    call_count = {"fast": 0}
-
     async def rate_limited_stream(*args, **kwargs):
-        call_count["fast"] += 1
         raise Exception("session usage limit, upgrade for higher limits")
         yield  # make it an async generator
 
@@ -411,7 +406,6 @@ async def test_router_stream_fallback_on_rate_limit_before_first_chunk():
     with (
         patch.object(router._providers[Tier.FAST], "stream", side_effect=rate_limited_stream),
         patch.object(router._providers[Tier.STANDARD], "stream", side_effect=groq_stream),
-        _patch("norn.core.router.asyncio.sleep", new_callable=AsyncMock) as mock_sleep,
     ):
         chunks = []
         async for chunk in router.stream([_msg("hi")]):
@@ -419,10 +413,6 @@ async def test_router_stream_fallback_on_rate_limit_before_first_chunk():
 
     assert len(chunks) == 1
     assert chunks[0].content == "groq ok"
-    # Rate-limit retry fired once (62s sleep) before escalating
-    mock_sleep.assert_awaited_once_with(62)
-    # Fast tier was tried twice (first attempt + retry after sleep)
-    assert call_count["fast"] == 2
 
 
 @pytest.mark.asyncio
