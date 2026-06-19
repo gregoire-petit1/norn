@@ -217,10 +217,11 @@ def bench_run(
         git_sha = "unknown"
 
     # Use 'yolo' mode: all tools auto-approved (subprocess has no TTY for prompts)
-    # Limit tool rounds to 15 to prevent echo loops after task completion
+    # Limit tool rounds to 20 — enough headroom for multi-file tasks (write
+    # impl + tests + run + iterate) while still capping echo loops.
     config_overrides: dict = {
         "permissions": {"mode": "yolo"},
-        "agent": {"max_tool_rounds": 15},
+        "agent": {"max_tool_rounds": 20},
     }
     if model:
         config_overrides["llm"] = {"model": model}

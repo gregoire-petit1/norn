@@ -17,21 +17,20 @@ from norn.core.models import ToolCall
 # Matches the "Tool Calls:" prefix to locate the start of the JSON array.
 _TOOL_CALLS_PREFIX_RE = re.compile(r"Tool\s+Calls:\s*")
 
-# Matches a standalone JSON object on its own line(s) that looks like a tool call.
-# Must have "name" and "arguments" keys.
-_FLAT_TOOL_CALL_RE = re.compile(
-    r'(?<![`])(\{[^{}]*"name"\s*:\s*"[^"]+?"[^{}]*"arguments"\s*:\s*\{[^}]*\}[^{}]*\})',
-    re.DOTALL,
-)
+# Locates likely starts of flat tool-call objects so we can attempt balanced
+# extraction from there. We require both "name" and "arguments" keys to appear
+# in the JSON; the actual depth-aware scan is done by ``_find_balanced_brace``.
+_FLAT_NAME_KEY_RE = re.compile(r'"name"\s*:\s*"[A-Za-z_][\w-]*"')
 
 
-def _find_balanced_bracket(text: str, start: int) -> int | None:
-    """Find the closing ``]`` that balances the opening ``[`` at *start*.
+def _find_balanced(text: str, start: int, open_ch: str, close_ch: str) -> int | None:
+    """Return the index of the *close_ch* that balances *open_ch* at *start*.
 
-    Handles brackets inside JSON strings (skipping ``\\"`` escapes).
-    Returns the index of the matching ``]`` or ``None`` if not found.
+    Tracks JSON-string state so brackets/braces inside string literals don't
+    confuse the depth counter. Handles ``\\"`` escapes inside strings.
+    Returns ``None`` when no balanced close is found.
     """
-    if start >= len(text) or text[start] != "[":
+    if start >= len(text) or text[start] != open_ch:
         return None
 
     depth = 0
@@ -48,14 +47,24 @@ def _find_balanced_bracket(text: str, start: int) -> int | None:
         else:
             if ch == '"':
                 in_string = True
-            elif ch == "[":
+            elif ch == open_ch:
                 depth += 1
-            elif ch == "]":
+            elif ch == close_ch:
                 depth -= 1
                 if depth == 0:
                     return i
         i += 1
     return None
+
+
+def _find_balanced_bracket(text: str, start: int) -> int | None:
+    """Find the closing ``]`` that balances the opening ``[`` at *start*."""
+    return _find_balanced(text, start, "[", "]")
+
+
+def _find_balanced_brace(text: str, start: int) -> int | None:
+    """Find the closing ``}`` that balances the opening ``{`` at *start*."""
+    return _find_balanced(text, start, "{", "}")
 
 
 def extract_tool_calls_from_text(text: str) -> tuple[list[ToolCall], str]:
@@ -169,21 +178,54 @@ def _parse_openai_item(item: dict[str, Any]) -> ToolCall | None:
 
 
 def _try_flat_pattern(original: str, stripped: str) -> tuple[list[ToolCall], str]:
-    """Try to extract flat JSON tool calls from text."""
-    matches = _FLAT_TOOL_CALL_RE.findall(stripped)
-    if not matches:
-        return [], original
+    """Try to extract flat JSON tool calls from *stripped* text.
 
+    Uses brace-balanced scanning so nested ``{}`` inside ``arguments`` (e.g.
+    a ``content`` string containing ``self.cache = {}``) are not truncated.
+    Anchors on a ``"name": "<ident>"`` key, walks left to the enclosing ``{``,
+    then forward to its balanced ``}``.
+    """
     calls: list[ToolCall] = []
-    for json_str in matches:
+    matches: list[str] = []
+    seen: set[tuple[int, int]] = set()
+
+    for m in _FLAT_NAME_KEY_RE.finditer(stripped):
+        # Walk left from the "name" key to the opening "{" of the candidate
+        # object (skipping whitespace and JSON tokens). The object must
+        # immediately contain this key, so we just step back over chars until
+        # we find a "{" or hit something that disqualifies the candidate.
+        start = m.start()
+        i = start - 1
+        while i >= 0 and stripped[i] != "{":
+            # If we run into another } or [ before finding {, give up.
+            if stripped[i] in "}]":
+                break
+            i -= 1
+        if i < 0 or stripped[i] != "{":
+            continue
+
+        # Skip candidates that are inside backticks (e.g. `{...}`).
+        if i > 0 and stripped[i - 1] == "`":
+            continue
+
+        end = _find_balanced_brace(stripped, i)
+        if end is None:
+            continue
+
+        if (i, end) in seen:
+            continue
+        seen.add((i, end))
+
+        json_str = stripped[i : end + 1]
         call = _parse_flat_item(json_str)
-        if call is not None:
-            calls.append(call)
+        if call is None:
+            continue
+        calls.append(call)
+        matches.append(json_str)
 
     if not calls:
         return [], original
 
-    # Remove matched JSON blocks from original text
     cleaned = original
     for json_str in matches:
         cleaned = cleaned.replace(json_str, "")
