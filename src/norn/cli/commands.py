@@ -263,10 +263,70 @@ def build_slash_completer(registry: SlashCommandRegistry):
     )
 
 
+_PLAN_PREFIX = """\
+Before writing any code, produce a structured plan:
+
+1. **Task** — restate in your own words what needs to be done
+2. **Files** — list every file to create or modify
+3. **Changes** — describe each function/class/block to add or change
+4. **Tests** — describe how you will verify correctness
+
+Then implement the plan step by step.
+
+Task: """
+
+_PROOF_PROMPT = """\
+Review the work completed so far from three perspectives:
+
+**Test-engineer:** Are edge cases handled? What inputs could break this?
+**QA:** Does the output match the original spec literally?
+**End-user:** Would this actually work in practice? Any correctness or usability issues?
+
+For each problem found: describe the issue and fix it.
+Conclude with either PASS (everything correct) or FAIL (and list what was fixed).\
+"""
+
+
+def _register_ramp_commands(reg: SlashCommandRegistry) -> None:
+    """Register /plan and /proof RAMP commands."""
+
+    @slash_command("/plan", description="Plan then implement: /plan <task>", registry=reg)
+    async def cmd_plan(ctx: CommandContext, args: str) -> None:
+        from norn.cli.renderer import StreamRenderer
+
+        task = args.strip()
+        if not task:
+            ctx.console.print("[dim]Usage: /plan <task description>[/dim]")
+            return
+        ctx.console.print("[bold cyan]Planning…[/bold cyan]")
+        renderer = StreamRenderer(ctx.console)
+        try:
+            await renderer.render(ctx.agent.run_stream(_PLAN_PREFIX + task))
+            ctx.console.print()
+        except Exception as exc:  # noqa: BLE001
+            ctx.console.print(f"[red]{exc}[/red]")
+
+    @slash_command("/proof", description="Verify last task from 3 perspectives", registry=reg)
+    async def cmd_proof(ctx: CommandContext, args: str) -> None:
+        from norn.cli.renderer import StreamRenderer
+
+        if not ctx.agent.history:
+            ctx.console.print("[dim]No task history to verify.[/dim]")
+            return
+        ctx.console.print("[bold cyan]Verifying…[/bold cyan]")
+        renderer = StreamRenderer(ctx.console)
+        try:
+            await renderer.render(ctx.agent.run_stream(_PROOF_PROMPT))
+            ctx.console.print()
+        except Exception as exc:  # noqa: BLE001
+            ctx.console.print(f"[red]{exc}[/red]")
+
+
 def build_default_registry() -> SlashCommandRegistry:
     """Create a registry with all default commands."""
     reg = SlashCommandRegistry()
     _register_session_commands(reg)
     _register_debug_commands(reg)
     _register_config_commands(reg)
+    _register_ramp_commands(reg)
     return reg
