@@ -368,3 +368,75 @@ async def test_proof_calls_run_stream_with_verification_prompt(default_registry,
     assert "Test-engineer" in call_prompt
     assert "QA" in call_prompt
     assert "End-user" in call_prompt
+
+
+# --- /reflect command tests ---
+
+
+def test_default_registry_has_reflect(default_registry):
+    assert "/reflect" in default_registry.command_names()
+
+
+@pytest.mark.asyncio
+async def test_reflect_no_history_shows_message(default_registry, ramp_ctx):
+    """/reflect with empty history should not call run_stream."""
+    ramp_ctx.agent.history = []
+    called = []
+    ramp_ctx.agent.run_stream = lambda p: called.append(p) or (_ for _ in ())
+    await default_registry.dispatch(ramp_ctx, "/reflect")
+    assert called == []
+
+
+@pytest.mark.asyncio
+async def test_reflect_calls_run_stream_with_reflect_prompt(default_registry, ramp_ctx):
+    """/reflect should call run_stream with the reflection prompt."""
+    from norn.cli.commands import _REFLECT_PROMPT
+
+    async def _noop_gen(prompt):
+        return
+        yield
+
+    mock_stream = MagicMock(side_effect=_noop_gen)
+    ramp_ctx.agent.run_stream = mock_stream
+
+    with patch("norn.cli.renderer.StreamRenderer.render", new=AsyncMock()):
+        await default_registry.dispatch(ramp_ctx, "/reflect")
+
+    mock_stream.assert_called_once()
+    call_prompt = mock_stream.call_args[0][0]
+    assert "Reflect" in call_prompt or "reflect" in call_prompt.lower()
+
+
+@pytest.mark.asyncio
+async def test_reflect_saves_lesson_when_memory_store_available(default_registry, ramp_ctx, tmp_path):
+    """/reflect should append lesson to memory_store using history content."""
+    from norn.memory.models import MemoryConfig
+    from norn.memory.store import MemoryStore
+    from norn.core.models import AgentEvent, EventType, Message, Role
+
+    store = MemoryStore(MemoryConfig(memory_dir=str(tmp_path / "mem")))
+    store.ensure_dirs()
+    ramp_ctx.agent.memory_store = store
+
+    # Pre-populate history: one existing message + the reflection assistant msg
+    # (simulating what run_stream appends during the reflect turn)
+    ramp_ctx.agent.history = [MagicMock()]  # existing history
+
+    async def _noop_gen(prompt):
+        return
+        yield
+
+    mock_stream = MagicMock(side_effect=_noop_gen)
+    ramp_ctx.agent.run_stream = mock_stream
+
+    async def _render_with_side_effect(self_renderer, events):
+        # Simulate run_stream appending the reflection to history
+        ramp_ctx.agent.history.append(
+            Message(role=Role.ASSISTANT, content="Lesson: always check inputs.")
+        )
+
+    with patch("norn.cli.renderer.StreamRenderer.render", new=_render_with_side_effect):
+        await default_registry.dispatch(ramp_ctx, "/reflect")
+
+    lessons = store.read_lessons()
+    assert "Lesson: always check inputs." in lessons

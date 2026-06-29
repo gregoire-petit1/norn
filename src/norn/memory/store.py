@@ -95,6 +95,23 @@ class MemoryStore:
             return True
         return False
 
+    # --- Lessons (W3.1 self-improvement) ---
+
+    @property
+    def _lessons_file(self) -> Path:
+        return self._topics_dir / "lessons.md"
+
+    def read_lessons(self) -> str:
+        """Return the learned lessons file content, or empty string."""
+        if not self._lessons_file.exists():
+            return ""
+        return self._lessons_file.read_text(encoding="utf-8")
+
+    def append_lesson(self, lesson: str) -> None:
+        """Append a lesson entry. Creates the file on first call."""
+        with open(self._lessons_file, "a", encoding="utf-8") as f:
+            f.write(lesson.rstrip() + "\n\n")
+
     # --- Daily logs ---
 
     def append_daily(self, date_str: str, entry: str) -> None:

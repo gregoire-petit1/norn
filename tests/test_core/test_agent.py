@@ -388,3 +388,114 @@ async def test_run_stream_updates_history(registry):
 
     assert len(agent.history) == 2  # user + assistant
     assert agent.user_message_count == 1
+
+
+# --------------------------------------------------------------------------- #
+# Phase 3: failure detection + post-turn hook
+# --------------------------------------------------------------------------- #
+
+
+from norn.core.models import Message, Role
+
+
+class TestDetectFailurePatterns:
+    def _make_msg(self, role, content=None, tool_calls=None):
+        return Message(role=role, content=content, tool_calls=tool_calls)
+
+    def test_max_rounds_detected(self):
+        patterns = AgentLoop._detect_failure_patterns([], "[Max tool rounds reached]")
+        assert "max_rounds" in patterns
+
+    def test_no_pattern_on_normal_content(self):
+        patterns = AgentLoop._detect_failure_patterns([], "All done!")
+        assert patterns == []
+
+    def test_tool_loop_detected(self):
+        call = ToolCall(id="c1", name="bash", arguments={"command": "ls"})
+        msgs = [
+            self._make_msg(Role.ASSISTANT, tool_calls=[call]),
+            self._make_msg(Role.ASSISTANT, tool_calls=[call]),
+            self._make_msg(Role.ASSISTANT, tool_calls=[call]),
+        ]
+        patterns = AgentLoop._detect_failure_patterns(msgs, "done")
+        assert any("tool_loop:bash" in p for p in patterns)
+
+    def test_tool_loop_not_detected_below_threshold(self):
+        call = ToolCall(id="c1", name="bash", arguments={"command": "ls"})
+        msgs = [
+            self._make_msg(Role.ASSISTANT, tool_calls=[call]),
+            self._make_msg(Role.ASSISTANT, tool_calls=[call]),
+        ]
+        patterns = AgentLoop._detect_failure_patterns(msgs, "done")
+        assert not any("tool_loop" in p for p in patterns)
+
+    def test_error_flood_detected(self):
+        msgs = [
+            self._make_msg(Role.TOOL, content="Error: file not found"),
+            self._make_msg(Role.TOOL, content="Exit code 1"),
+            self._make_msg(Role.TOOL, content="Timeout: exceeded 30s"),
+        ]
+        patterns = AgentLoop._detect_failure_patterns(msgs, "done")
+        assert "error_flood" in patterns
+
+    def test_error_flood_not_detected_below_threshold(self):
+        msgs = [
+            self._make_msg(Role.TOOL, content="Error: file not found"),
+            self._make_msg(Role.TOOL, content="ok output"),
+            self._make_msg(Role.TOOL, content="Exit code 1"),
+        ]
+        patterns = AgentLoop._detect_failure_patterns(msgs, "done")
+        assert "error_flood" not in patterns
+
+
+@pytest.mark.asyncio
+async def test_post_turn_hook_sets_last_failure_patterns(registry):
+    """_post_turn_hook populates last_failure_patterns on the agent."""
+    llm = AsyncMock()
+    llm.stream = lambda **kwargs: _mock_stream_text(["done"])
+
+    agent = AgentLoop(llm=llm, registry=registry)
+    async for _ in agent.run_stream("hi"):
+        pass
+    assert isinstance(agent.last_failure_patterns, list)
+
+
+@pytest.mark.asyncio
+async def test_post_turn_hook_logs_to_daily_when_patterns_found(registry, tmp_path):
+    """When max_rounds is reached with memory_store set, daily log is written."""
+    from norn.memory.models import MemoryConfig
+    from norn.memory.store import MemoryStore
+
+    store = MemoryStore(MemoryConfig(memory_dir=str(tmp_path / "mem")))
+    store.ensure_dirs()
+
+    call_count = 0
+
+    async def _always_tool(**kwargs):
+        nonlocal call_count
+        call_count += 1
+        yield StreamChunk(
+            content=None,
+            tool_calls=[ToolCall(id=f"c{call_count}", name="echo", arguments={"text": "x"})],
+            done=True,
+        )
+
+    llm = AsyncMock()
+    llm.stream = _always_tool
+
+    agent = AgentLoop(
+        llm=llm,
+        registry=registry,
+        memory_store=store,
+        max_tool_rounds=2,
+    )
+    async for _ in agent.run_stream("loop forever"):
+        pass
+
+    assert "max_rounds" in agent.last_failure_patterns
+    from datetime import datetime, timezone
+
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    log = store.read_daily(today)
+    assert log is not None
+    assert "max_rounds" in log

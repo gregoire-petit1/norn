@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Awaitable, Callable
 
@@ -287,6 +288,17 @@ Conclude with either PASS (everything correct) or FAIL (and list what was fixed)
 """
 
 
+_REFLECT_PROMPT = """\
+The previous task is complete. Reflect on how it went:
+
+1. What worked well?
+2. What went wrong or was inefficient?
+3. What would you do differently next time?
+
+Write 1-3 concise lessons learned as bullet points. These will be saved and injected into future sessions.\
+"""
+
+
 def _register_ramp_commands(reg: SlashCommandRegistry) -> None:
     """Register /plan and /proof RAMP commands."""
 
@@ -320,6 +332,44 @@ def _register_ramp_commands(reg: SlashCommandRegistry) -> None:
             ctx.console.print()
         except Exception as exc:  # noqa: BLE001
             ctx.console.print(f"[red]{exc}[/red]")
+
+    @slash_command("/reflect", description="Reflect on last task and save lessons", registry=reg)
+    async def cmd_reflect(ctx: CommandContext, args: str) -> None:
+        from norn.cli.renderer import StreamRenderer
+
+        if not ctx.agent.history:
+            ctx.console.print("[dim]No task history to reflect on.[/dim]")
+            return
+        store = getattr(ctx.agent, "memory_store", None)
+        if store is None:
+            ctx.console.print("[dim]Memory not enabled — lessons won't be saved.[/dim]")
+        ctx.console.print("[bold cyan]Reflecting…[/bold cyan]")
+        history_len_before = len(ctx.agent.history)
+        renderer = StreamRenderer(ctx.console)
+        try:
+            await renderer.render(ctx.agent.run_stream(_REFLECT_PROMPT))
+            ctx.console.print()
+        except Exception as exc:  # noqa: BLE001
+            ctx.console.print(f"[red]{exc}[/red]")
+            return
+
+        if store is not None:
+            # Grab reflection text from the assistant message appended by run_stream
+            reflection = ""
+            for msg in ctx.agent.history[history_len_before:]:
+                from norn.core.models import Role as _Role
+
+                if getattr(msg, "role", None) == _Role.ASSISTANT and msg.content:
+                    reflection = msg.content
+                    break
+            if reflection:
+                from datetime import datetime, timezone
+
+                ts = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+                lesson = f"## Reflection [{ts}]\n\n{reflection.strip()}"
+                with contextlib.suppress(Exception):
+                    store.append_lesson(lesson)
+                ctx.console.print("[green]Lessons saved.[/green]")
 
 
 def build_default_registry() -> SlashCommandRegistry:
