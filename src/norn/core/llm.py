@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
+import random
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
@@ -172,6 +174,25 @@ def _apply_cache_markers(
     return new_messages, new_tools
 
 
+async def _retry_on_rate_limit(coro_fn, max_retries: int, backoff_base: float = 2.0):
+    """Retry coro_fn on 429 rate-limit errors with exponential backoff + jitter."""
+    for attempt in range(max_retries + 1):
+        try:
+            return await coro_fn()
+        except Exception as exc:
+            is_rate_limit = (
+                getattr(exc, "status_code", None) == 429
+                or "429" in str(exc)
+                or "rate_limit" in type(exc).__name__.lower()
+                or "too many requests" in str(exc).lower()
+            )
+            if not is_rate_limit or attempt >= max_retries:
+                raise
+            delay = (backoff_base**attempt) + random.uniform(0.0, 1.0)
+            _log.warning("llm_rate_limit", attempt=attempt + 1, retry_in_s=round(delay, 1))
+            await asyncio.sleep(delay)
+
+
 class LiteLLMProvider:
     """LLM provider using litellm for universal model support."""
 
@@ -182,6 +203,8 @@ class LiteLLMProvider:
         *,
         completion_fn: Callable[..., Awaitable[Any]] | None = None,
         prompt_cache: bool = True,
+        max_retries: int = 3,
+        retry_backoff: float = 2.0,
     ) -> None:
         self.model = model
         self.api_base = api_base
@@ -194,6 +217,8 @@ class LiteLLMProvider:
         # Gate at construction: drop the flag immediately if the model is
         # not on the allowlist, so the hot path stays a single bool check.
         self._prompt_cache = prompt_cache and _supports_prompt_cache(model)
+        self._max_retries = max_retries
+        self._retry_backoff = retry_backoff
         # Suppress litellm logging noise
         litellm.suppress_debug_info = True
         _stdlib_logging.getLogger("LiteLLM").setLevel(_stdlib_logging.WARNING)
@@ -246,7 +271,11 @@ class LiteLLMProvider:
         ) as event:
             completion = self._completion_fn or litellm.acompletion
             _start = __import__("time").monotonic()
-            response = await completion(**kwargs)
+            response = await _retry_on_rate_limit(
+                lambda: completion(**kwargs),
+                self._max_retries,
+                self._retry_backoff,
+            )
 
             # Guard against malformed / minimal responses:
             # - ``response.choices`` may be empty (provider refusal, mocks).
@@ -333,7 +362,11 @@ class LiteLLMProvider:
                 kwargs["tools"] = marked_tools
 
         completion = self._completion_fn or litellm.acompletion
-        response = await completion(**kwargs)
+        response = await _retry_on_rate_limit(
+            lambda: completion(**kwargs),
+            self._max_retries,
+            self._retry_backoff,
+        )
 
         # Accumulator for fragmented tool calls (keyed by index)
         tc_accum: dict[int, dict] = {}

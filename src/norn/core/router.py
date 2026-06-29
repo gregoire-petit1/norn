@@ -150,6 +150,8 @@ def build_litellm_provider(
     api_base: str | None,
     *,
     prompt_cache: bool = True,
+    max_retries: int = 3,
+    retry_backoff: float = 2.0,
 ) -> LiteLLMProvider:
     """Build a LiteLLMProvider, applying the LiteLLM provider-prefix convention.
 
@@ -161,7 +163,13 @@ def build_litellm_provider(
         prefixed_model = f"ollama/{model}"
     elif provider == "openrouter":
         prefixed_model = f"openrouter/{model}"
-    return LiteLLMProvider(model=prefixed_model, api_base=api_base, prompt_cache=prompt_cache)
+    return LiteLLMProvider(
+        model=prefixed_model,
+        api_base=api_base,
+        prompt_cache=prompt_cache,
+        max_retries=max_retries,
+        retry_backoff=retry_backoff,
+    )
 
 
 class RouterProvider:

@@ -125,6 +125,8 @@ def _build_provider(
         config.llm.model,
         config.llm.api_base,
         prompt_cache=config.llm.prompt_cache,
+        max_retries=config.llm.max_retries,
+        retry_backoff=config.llm.retry_backoff,
     )
 
 
@@ -324,6 +326,8 @@ def chat(model: ModelOption = None, verbose: VerboseOption = False) -> None:
             model_str.split("/")[0] if "/" in model_str else "ollama",
             model_str.split("/", 1)[1] if "/" in model_str else model_str,
             api_base=None,
+            max_retries=config.llm.max_retries,
+            retry_backoff=config.llm.retry_backoff,
         ),
         flag_registry=flag_registry,
     )

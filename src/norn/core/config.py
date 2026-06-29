@@ -33,6 +33,9 @@ class LLMConfig(BaseModel):
     # gates internally on _supports_prompt_cache(model) so this is harmless
     # on non-supporting models.
     prompt_cache: bool = True
+    # Retry on 429 rate-limit errors with exponential backoff + jitter.
+    max_retries: int = 3
+    retry_backoff: float = 2.0
 
 
 class PermissionsConfig(BaseModel):
