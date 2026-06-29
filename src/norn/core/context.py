@@ -48,6 +48,9 @@ class ContextManager:
         # Cache
         self._cached_summary: str | None = None
         self._cached_history_len: int = 0
+        # W1.3: store the last system_prompt so _llm_summarize shares the same
+        # prefix as the main agent loop → Anthropic prompt-cache hits on the prefix.
+        self._system_prompt: str = ""
 
     async def build_messages(
         self,
@@ -58,6 +61,7 @@ class ContextManager:
 
         Returns: [system, summary_msg?, ...recent_turns]
         """
+        self._system_prompt = system_prompt  # W1.3: shared prefix for summarization
         system_msg = Message(role=Role.SYSTEM, content=system_prompt)
 
         if not self.enabled or not history:
@@ -109,14 +113,22 @@ class ContextManager:
         return self._extractive_summary(messages)
 
     async def _llm_summarize(self, messages: list[Message]) -> str:
-        """Use an LLM to generate the summary."""
+        """Use an LLM to generate the summary.
+
+        Prepends the agent's system prompt so the API call shares the same prefix
+        as the main loop → prompt-cache hits on the system message tokens.
+        """
         conversation = "\n".join(f"{m.role.value}: {(m.content or '')[:200]}" for m in messages)
         prompt = _SUMMARY_PROMPT.format(
             max_tokens=self.summary_max_tokens,
             conversation=conversation,
         )
+        call_messages: list[Message] = []
+        if self._system_prompt:
+            call_messages.append(Message(role=Role.SYSTEM, content=self._system_prompt))
+        call_messages.append(Message(role=Role.USER, content=prompt))
         response = await self._summary_provider.complete(  # type: ignore[union-attr]
-            messages=[Message(role=Role.USER, content=prompt)],
+            messages=call_messages,
             tools=None,
             max_tokens=self.summary_max_tokens,
         )

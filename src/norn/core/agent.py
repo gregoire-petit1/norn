@@ -101,18 +101,29 @@ class AgentLoop:
         # Session stats
         self.user_message_count = 0
         self.tool_call_count = 0
+        # W1.1: cache built system prompt; invalidate only when memory content changes.
+        # Env snapshot and repo map are static after construction — memory is the only
+        # dynamic component. Caching avoids redundant string concatenation and keeps the
+        # Anthropic prompt-cache prefix byte-stable across turns within a session.
+        self._system_prompt_cache: str | None = None
+        self._last_memory_content: str = ""
 
     def _build_system_prompt(self) -> str:
         """Build system prompt with optional memory injection."""
+        memory_content = self.memory_store.read_memory() if self.memory_store is not None else ""
+        if self._system_prompt_cache is not None and memory_content == self._last_memory_content:
+            return self._system_prompt_cache
+
         prompt = self.system_prompt
-        if self.memory_store is not None:
-            memory_content = self.memory_store.read_memory()
-            if memory_content.strip():
-                prompt += "\n\n## Persistent Memory\n\n" + memory_content
+        if memory_content.strip():
+            prompt += "\n\n## Persistent Memory\n\n" + memory_content
         if self._env_snapshot:
             prompt += "\n\n" + self._env_snapshot
         if self._repo_map:
             prompt += "\n\n" + self._repo_map
+
+        self._system_prompt_cache = prompt
+        self._last_memory_content = memory_content
         return prompt
 
     async def run(self, user_input: str) -> LLMResponse:
