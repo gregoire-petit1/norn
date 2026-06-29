@@ -1,6 +1,6 @@
 # Norn SOTA Plan — 2026-06-20
 
-Source: notes from AI engineer colleague (harness track) + AI-generated draft plan (reworked).
+Source: notes from AI engineer colleague (harness track) + AI-generated draft plan (reworked) + analysis of terminal-bench (harbor-framework) and KIRA (krafton-ai/Terminus-KIRA) repos.
 
 ---
 
@@ -50,6 +50,42 @@ Least benchmark-relevant right now. Deferred to last.
 ### Track 5 — CodeRAG++
 Builds on existing `repo_map.py` (AST-based). The jump to embeddings + hybrid search is meaningful but complex. Medium priority.
 
+### Track 6 — terminal-bench + KIRA (new source)
+
+**terminal-bench** (harbor-framework) = external benchmark harness. ~100 real terminal tasks, Docker-sandboxed, oracle solutions + verification scripts, `tb` CLI, public leaderboard.  
+**KIRA** (krafton-ai/Terminus-KIRA) = agent tuned to score on terminal-bench. Tricks: marker-based command-completion polling, output caps, multimodal, multi-perspective verification, Anthropic prompt caching.
+
+Framing: these are complementary. terminal-bench = the test. KIRA = an agent that games the test well.  
+**Norn overlaps KIRA** (both are agents) and **could consume terminal-bench** (the harness).
+
+What Norn already has — skip:
+- Native function calling — Norn default; `tool_call_extractor.py` is fallback only
+- Output truncation — `max_tool_result_chars=8000` already in loop
+- Context summarization — `context.py` + sliding window
+- Verify phase — coordinator has research/build/verify
+
+**Net-new from this track:**
+
+**A — terminal-bench adapter** (highest value from this track)  
+Norn's internal benchmark suite is non-comparable externally. Write a `tb` adapter so Norn runs under terminal-bench → industry-standard numbers + leaderboard position. Doesn't replace internal suite; adds external yardstick.  
+Caution: terminal-bench is v0.1.1/beta, dataset schema may churn → pin adapter to a dataset version.
+
+**B — Marker-based command polling** (practical win)  
+`bash_tool.py` = blocking `asyncio.wait_for(process.communicate(), timeout)` — fixed timeout, kills on overrun, no long-running support.  
+KIRA approach: echo `__CMDEND__<seq>__` marker to detect completion early instead of fixed wait → handles long builds/trains/bg processes.  
+Impact: unblocks "long-horizon" task category (already in Norn's benchmark suite).
+
+**C — Prompt caching via litellm** (maps to Phase 1)  
+KIRA uses Anthropic `cache_control`. Norn is model-agnostic via litellm — litellm exposes `cache_control` for Anthropic behind provider check. Wire in `llm.py`. Same track as Viktor byte-stable prefix.
+
+**D — Multi-perspective verification checklist** (maps to Phase 2)  
+Pure prompt change: validate output as test-engineer + QA + user. Drop into coordinator verify phase / /proof command. Near-zero cost.
+
+**E — Docker sandbox per task** (maps to Phase 6, scoped)  
+Phase 11 design has `sandbox.py` (tmpdir), not Docker. terminal-bench uses Docker per task → reproducibility + no host contamination. Upgrade path for `benchmarks/runner/` specifically (narrower scope than full YoloFS).
+
+Skip from KIRA: `image_read` multimodal (not core to Norn's MLOps angle), Terminus 2 runtime.
+
 ---
 
 ## Priority order (by Norn-specific ROI)
@@ -89,6 +125,24 @@ Impact: compaction cost drops ~4x.
 **W1.4 — Tool schema minification (already partially done)**  
 Verify schema minify from Wave 1 is still active after repo map / env bootstrap additions.
 
+**W1.5 — Prompt caching via litellm `cache_control`**  
+litellm exposes `cache_control` for Anthropic provider. Wire into `llm.py` behind `if provider == "anthropic"` guard.  
+Synergy: byte-stable prefix (W1.1) is prerequisite — cache_control only helps if the prefix is stable.
+
+---
+
+### Phase 1.5 — Harness: terminal-bench adapter + marker polling (1 week, parallel-able with Phase 2)
+
+**W1.5a — terminal-bench adapter**  
+Write `benchmarks/adapters/terminal_bench.py`: implement the `tb` agent adapter interface so Norn runs under `tb run`.  
+Pin to terminal-bench dataset version (e.g. `v0.1.1`) in adapter config — schema churn is real at beta.  
+Result: Norn gets external reproducible numbers + leaderboard position alongside internal suite.
+
+**W1.5b — Marker-based command polling in `bash_tool.py`**  
+Replace `asyncio.wait_for(process.communicate(), timeout)` with streaming read loop that polls for `__CMDEND__<seq>__` marker.  
+Fallback: if marker never arrives within timeout, kill as today.  
+Benefit: long builds/installs/training runs complete naturally instead of timing out → long-horizon task category.
+
 ---
 
 ### Phase 2 — RAMP: Plan + Proof modes (1-2 weeks)
@@ -106,6 +160,14 @@ After task complete, agent:
 4. Reports: PASS/FAIL + evidence
 
 Direct benchmark impact: catches "done but wrong" completions.
+
+**W2.2b — Multi-perspective verification prompt (from KIRA)**  
+In the /proof verify prompt: explicitly instruct the agent to evaluate output from 3 lenses:
+1. Test-engineer: are edge cases handled?
+2. QA: does output match spec literally?
+3. End-user: would this actually work in practice?
+
+Pure prompt addition, zero code change. Orthogonal to W2.2 — add to same verify phase.
 
 **W2.3 — /rules inspect**  
 View + edit AGENTS.md and memory context inline. Lower priority, but completes the RAMP surface.
@@ -192,6 +254,14 @@ Agent writes Python code blocks that `import stripe`, `import linear`, etc. Code
 
 Lowest benchmark ROI. Relevant for production safety, not accuracy.
 
+**Phase 6a — Docker sandbox for benchmarks (scoped, earlier than full YoloFS)**  
+Phase 11 design has `sandbox.py` (tmpdir isolation). Upgrade `benchmarks/runner/` to Docker per task:
+- Reproducibility: each task starts from clean image
+- No host contamination from benchmark runs
+- Aligns with terminal-bench approach (comparability argument)
+Scope: benchmark runner only, not agent execution sandbox. Narrower than full YoloFS.
+
+**Phase 6b — Full YoloFS / production sandbox**
 - Staging layer (all writes buffered, diff visible before commit)
 - Snapshot/rollback
 - Progressive permissions (read → write → write-sensitive)
@@ -204,13 +274,15 @@ Revisit after Phase 3-4.
 
 | Phase | Track | Effort | Benchmark ROI | Risk |
 |-------|-------|--------|---------------|------|
-| P0 | 429 fix + baseline | S | Unblocks everything | Low |
-| 1 | Viktor cache invariants | M | High (cost) | Low |
-| 2 | RAMP Plan+Proof | M | High (accuracy) | Low |
-| 3 | Self-improvement | L | Medium | Medium |
+| P0 | 429 retry patch | S | Dev-env fix | Low |
+| 1 | Viktor cache invariants + litellm caching | M | High (cost) | Low |
+| 1.5 | terminal-bench adapter + marker polling | M | External comparability + long-horizon tasks | Low |
+| 2 | RAMP Plan+Proof + multi-perspective verify | M | High (accuracy) | Low |
+| 3 | Self-improvement loop | L | Medium | Medium |
 | 4 | CodeRAG++ | L | Medium | Medium |
-| 5 | Full Viktor paradigm | XL | High ceiling | High |
-| 6 | Sandbox/YoloFS | XL | Low | Medium |
+| 5 | Full Viktor paradigm (code-writing) | XL | High ceiling | High |
+| 6a | Docker benchmark sandbox | M | Reproducibility | Low |
+| 6b | Full YoloFS | XL | Production safety | Medium |
 
 ---
 
