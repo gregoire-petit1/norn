@@ -111,6 +111,12 @@ class LoggingConfig(BaseModel):
 
 class AgentConfig(BaseModel):
     max_tool_rounds: int = 25
+    # Autonomous self-verification (headless `norn run`): after the main run,
+    # inject up to N verify turns so the agent checks its own deliverable and
+    # fixes gaps before exiting. Off by default (interactive users drive their
+    # own verification); benchmark/headless callers opt in.
+    auto_verify: bool = False
+    auto_verify_max_rounds: int = 2
     minify_tool_schemas: bool = True
     max_tool_result_chars: int = 8000
     max_turn_output_chars: int = 30000  # Per-turn budget across all tool calls

@@ -438,7 +438,15 @@ def run(
     async def _run_once() -> None:
         try:
             renderer = StreamRenderer(console)
-            await renderer.render(agent.run_stream(prompt))
+            if config.agent.auto_verify:
+                await renderer.render(
+                    agent.run_verified(
+                        prompt,
+                        max_verify_rounds=config.agent.auto_verify_max_rounds,
+                    )
+                )
+            else:
+                await renderer.render(agent.run_stream(prompt))
         except Exception as e:
             console.print(f"[red]{format_llm_error(e)}[/red]")
 

@@ -499,3 +499,94 @@ async def test_post_turn_hook_logs_to_daily_when_patterns_found(registry, tmp_pa
     log = store.read_daily(today)
     assert log is not None
     assert "max_rounds" in log
+
+
+# --------------------------------------------------------------------------- #
+# Autonomous self-verification (run_verified)
+# --------------------------------------------------------------------------- #
+
+
+class TestExtractVerdict:
+    def test_pass(self):
+        assert AgentLoop._extract_verdict("all good\nPASS") == "pass"
+
+    def test_fail(self):
+        assert AgentLoop._extract_verdict("missing file\nFAIL") == "fail"
+
+    def test_last_token_wins(self):
+        # "or FAIL" in reasoning must not override the final PASS verdict
+        text = "I'll conclude with PASS or FAIL.\n...\nPASS"
+        assert AgentLoop._extract_verdict(text) == "pass"
+
+    def test_unknown_when_absent(self):
+        assert AgentLoop._extract_verdict("no verdict here") == "unknown"
+
+    def test_empty(self):
+        assert AgentLoop._extract_verdict("") == "unknown"
+
+
+@pytest.mark.asyncio
+async def test_run_verified_stops_on_pass(registry):
+    """A PASS on the first verify turn should stop further verification."""
+    turns = []
+
+    def _stream(**kwargs):
+        turns.append(kwargs["messages"][-1].content)
+        # main run -> some work text; verify turn -> PASS
+        idx = len(turns)
+        if idx == 1:
+            return _mock_stream_text(["did the work"])
+        return _mock_stream_text(["looks correct\n", "PASS"])
+
+    llm = AsyncMock()
+    llm.stream = _stream
+
+    agent = AgentLoop(llm=llm, registry=registry)
+    events = []
+    async for e in agent.run_verified("do the task", max_verify_rounds=2):
+        events.append(e)
+
+    # 1 main + exactly 1 verify turn (stopped on PASS)
+    assert len(turns) == 2
+    assert events[-1].type == EventType.DONE
+
+
+@pytest.mark.asyncio
+async def test_run_verified_retries_on_fail(registry):
+    """FAIL verdicts should consume all verify rounds."""
+    turns = []
+
+    def _stream(**kwargs):
+        turns.append(kwargs["messages"][-1].content)
+        if len(turns) == 1:
+            return _mock_stream_text(["did the work"])
+        return _mock_stream_text(["still broken\n", "FAIL"])
+
+    llm = AsyncMock()
+    llm.stream = _stream
+
+    agent = AgentLoop(llm=llm, registry=registry)
+    async for _ in agent.run_verified("do the task", max_verify_rounds=2):
+        pass
+
+    # 1 main + 2 verify turns (both FAIL, exhausted rounds)
+    assert len(turns) == 3
+
+
+@pytest.mark.asyncio
+async def test_run_verified_zero_rounds_is_plain_run(registry):
+    """max_verify_rounds=0 must behave like a single run_stream."""
+    turns = []
+
+    def _stream(**kwargs):
+        turns.append(kwargs["messages"][-1].content)
+        return _mock_stream_text(["done"])
+
+    llm = AsyncMock()
+    llm.stream = _stream
+
+    agent = AgentLoop(llm=llm, registry=registry)
+    async for _ in agent.run_verified("do the task", max_verify_rounds=0):
+        pass
+
+    assert len(turns) == 1

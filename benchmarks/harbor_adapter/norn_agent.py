@@ -43,7 +43,12 @@ _LITELLM_CONFIG_DIR = Path.home() / ".config" / "litellm"
 # session cap) rather than a raw provider API key.
 _CONFIG_OVERRIDES = {
     "permissions": {"mode": "yolo"},
-    "agent": {"max_tool_rounds": 20},
+    # Terminal-bench tasks need far more sequential steps than Norn's trivial
+    # internal suite: observed failures (chess-best-move, overfull-hbox) were
+    # cut off mid-work at the old cap of 20 before writing the deliverable.
+    # auto_verify adds up to 2 self-check turns so the agent confirms its
+    # output file exists / tests pass before the container tears down.
+    "agent": {"max_tool_rounds": 50, "auto_verify": True, "auto_verify_max_rounds": 2},
     "router": {
         "enabled": True,
         "domain_routing": True,

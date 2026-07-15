@@ -374,6 +374,52 @@ class AgentLoop:
         self._post_turn_hook(messages, "[Max tool rounds reached]")
         yield AgentEvent(type=EventType.DONE)
 
+    @staticmethod
+    def _extract_verdict(text: str) -> str:
+        """Return 'pass' / 'fail' / 'unknown' from a self-verification reply.
+
+        Uses the LAST standalone PASS/FAIL token so intermediate mentions
+        ("...or FAIL") in the agent's reasoning don't override the final verdict.
+        """
+        import re
+
+        matches = re.findall(r"\b(PASS|FAIL)\b", text or "")
+        if not matches:
+            return "unknown"
+        return matches[-1].lower()
+
+    async def run_verified(
+        self,
+        user_input: str,
+        *,
+        max_verify_rounds: int = 2,
+        verify_prompt: str | None = None,
+    ) -> AsyncIterator[AgentEvent]:
+        """Run the task, then self-verify up to ``max_verify_rounds`` times.
+
+        After the main run, injects a self-verification turn (same conversation,
+        so history/cache carry over). If the agent's verdict is not PASS, it has
+        already been asked to fix problems with tools during that same turn;
+        another verify turn re-checks. Stops early on PASS or when rounds are
+        exhausted. Falls back to a plain single run when ``max_verify_rounds`` is
+        0, preserving existing behaviour.
+        """
+        from norn.core.prompts import SELF_VERIFY_PROMPT
+
+        prompt = verify_prompt or SELF_VERIFY_PROMPT
+
+        async for event in self.run_stream(user_input):
+            yield event
+
+        for _round in range(max_verify_rounds):
+            verdict_text: list[str] = []
+            async for event in self.run_stream(prompt):
+                if event.type == EventType.TEXT_DELTA and event.content:
+                    verdict_text.append(event.content)
+                yield event
+            if self._extract_verdict("".join(verdict_text)) == "pass":
+                break
+
     def _get_tools_for_turn(self, messages: list[Message]) -> list[dict] | None:
         """Get tool schemas for this turn, optionally filtered by selector."""
         all_schemas = self.registry.get_schemas(minify=self._minify_tool_schemas)
