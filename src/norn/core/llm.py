@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
@@ -182,6 +183,7 @@ class LiteLLMProvider:
         *,
         completion_fn: Callable[..., Awaitable[Any]] | None = None,
         prompt_cache: bool = True,
+        request_timeout: float | None = 90.0,
     ) -> None:
         self.model = model
         self.api_base = api_base
@@ -194,9 +196,26 @@ class LiteLLMProvider:
         # Gate at construction: drop the flag immediately if the model is
         # not on the allowlist, so the hot path stays a single bool check.
         self._prompt_cache = prompt_cache and _supports_prompt_cache(model)
+        self._request_timeout = request_timeout
         # Suppress litellm logging noise
         litellm.suppress_debug_info = True
         _stdlib_logging.getLogger("LiteLLM").setLevel(_stdlib_logging.WARNING)
+
+    async def _call_with_timeout(
+        self,
+        completion: Callable[..., Awaitable[Any]],
+        kwargs: dict,
+    ) -> Any:
+        """Invoke *completion* with belt-and-suspenders timeout.
+
+        Litellm honours the ``timeout`` kwarg natively but some upstream
+        providers ignore it and quietly stall. Wrapping in
+        :func:`asyncio.wait_for` guarantees the call can be cancelled by the
+        agent loop regardless of provider behaviour.
+        """
+        if self._request_timeout is None:
+            return await completion(**kwargs)
+        return await asyncio.wait_for(completion(**kwargs), timeout=self._request_timeout)
 
     async def complete(
         self,
@@ -219,6 +238,8 @@ class LiteLLMProvider:
         }
         if self.api_base:
             kwargs["api_base"] = self.api_base
+        if self._request_timeout is not None:
+            kwargs["timeout"] = self._request_timeout
 
         tool_schemas = build_tool_schemas(tools or [])
         if tool_schemas:
@@ -246,7 +267,7 @@ class LiteLLMProvider:
         ) as event:
             completion = self._completion_fn or litellm.acompletion
             _start = __import__("time").monotonic()
-            response = await completion(**kwargs)
+            response = await self._call_with_timeout(completion, kwargs)
 
             # Guard against malformed / minimal responses:
             # - ``response.choices`` may be empty (provider refusal, mocks).
@@ -316,6 +337,8 @@ class LiteLLMProvider:
         }
         if self.api_base:
             kwargs["api_base"] = self.api_base
+        if self._request_timeout is not None:
+            kwargs["timeout"] = self._request_timeout
 
         tool_schemas = build_tool_schemas(tools or [])
         if tool_schemas:
@@ -333,7 +356,7 @@ class LiteLLMProvider:
                 kwargs["tools"] = marked_tools
 
         completion = self._completion_fn or litellm.acompletion
-        response = await completion(**kwargs)
+        response = await self._call_with_timeout(completion, kwargs)
 
         # Accumulator for fragmented tool calls (keyed by index)
         tc_accum: dict[int, dict] = {}

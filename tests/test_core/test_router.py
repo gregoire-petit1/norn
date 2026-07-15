@@ -382,6 +382,57 @@ async def test_router_stream_with_tier_override():
         assert chunks[0].content == "from override"
 
 
+@pytest.mark.asyncio
+async def test_router_stream_fallback_on_rate_limit_before_first_chunk():
+    """stream() falls back immediately to next tier when fast tier is rate-limited.
+
+    Regression guard for bench runs 8-11: norn uses run_stream() which calls
+    RouterProvider.stream(). The old implementation had no fallback in stream(),
+    so Ollama session-cap errors propagated immediately instead of falling back
+    to Groq. This caused 4-9/16 pass rates when Ollama quota was exhausted.
+    """
+    from norn.core.models import StreamChunk
+
+    config = _make_router_config()
+    router = RouterProvider(config)
+
+    async def rate_limited_stream(*args, **kwargs):
+        raise Exception("session usage limit, upgrade for higher limits")
+        yield  # make it an async generator
+
+    async def groq_stream(*args, **kwargs):
+        yield StreamChunk(content="groq ok", done=True)
+
+    with (
+        patch.object(router._providers[Tier.FAST], "stream", side_effect=rate_limited_stream),
+        patch.object(router._providers[Tier.STANDARD], "stream", side_effect=groq_stream),
+    ):
+        chunks = []
+        async for chunk in router.stream([_msg("hi")]):
+            chunks.append(chunk)
+
+    assert len(chunks) == 1
+    assert chunks[0].content == "groq ok"
+
+
+@pytest.mark.asyncio
+async def test_router_stream_no_fallback_after_first_chunk():
+    """After yielding the first chunk, mid-stream errors must propagate."""
+    from norn.core.models import StreamChunk
+
+    config = _make_router_config()
+    router = RouterProvider(config)
+
+    async def failing_after_first(*args, **kwargs):
+        yield StreamChunk(content="first", done=False)
+        raise RuntimeError("mid-stream failure")
+
+    with patch.object(router._providers[Tier.FAST], "stream", side_effect=failing_after_first):
+        with pytest.raises(RuntimeError, match="mid-stream failure"):
+            async for _ in router.stream([_msg("hi")]):
+                pass
+
+
 # ── Config validation ──────────────────────────────────────────────────────
 
 
