@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import uuid
 
 from pydantic import BaseModel
@@ -14,14 +15,20 @@ class BashInput(BaseModel):
     """Input for bash command execution."""
 
     command: str
-    timeout: int = 120
+    # Default sized for compute-heavy steps (builds, solver/engine runs). The
+    # old 120s cut off legitimate long analyses mid-task; the model can still
+    # raise this per call for known-slow commands.
+    timeout: int = 300
 
 
 class BashTool:
     """Execute a shell command."""
 
     name = "bash"
-    description = "Execute a bash command in the shell."
+    description = (
+        "Execute a bash command in the shell. Default timeout 300s; pass a larger "
+        "`timeout` (seconds) for known-slow commands like builds or long computations."
+    )
     risk_level = RiskLevel.HIGH
     input_model = BashInput
 
@@ -71,8 +78,20 @@ class BashTool:
                     break
                 stdout_parts.append(line)
         except asyncio.TimeoutError:
-            process.kill()
+            # Reap the subprocess transport WITHIN the running loop. Skipping
+            # `await process.wait()` here leaves the transport unreaped; its
+            # __del__ then fires after the event loop has closed and raises
+            # "RuntimeError: Event loop is closed", which crashed whole headless
+            # runs mid-task (e.g. a stockfish analysis that overran the timeout).
+            with contextlib.suppress(ProcessLookupError):
+                process.kill()
             stderr_task.cancel()
+            # CancelledError subclasses BaseException, not Exception — suppress
+            # it explicitly so awaiting the just-cancelled task doesn't re-raise.
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await stderr_task
+            with contextlib.suppress(Exception):
+                await process.wait()
             return ToolResult(
                 error=f"Timeout: command exceeded {input.timeout}s",
                 error_type=ToolErrorType.TIMEOUT.value,

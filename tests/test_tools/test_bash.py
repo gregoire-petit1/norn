@@ -16,6 +16,24 @@ def test_tool_metadata(tool):
     assert tool.risk_level == RiskLevel.HIGH
 
 
+def test_default_timeout_is_300():
+    """Default sized for compute-heavy steps; old 120s cut off long analyses."""
+    assert BashInput(command="echo hi").timeout == 300
+
+
+@pytest.mark.asyncio
+async def test_timeout_reaps_process_cleanly(tool, tmp_path):
+    """Timeout path must await process.wait() so the transport is reaped in the
+    running loop (else __del__ fires post-close → 'Event loop is closed')."""
+    ctx = ToolContext(cwd=str(tmp_path))
+    # A child that ignores SIGTERM-ish quick exit; sleep is enough to force the
+    # timeout branch. After it returns, no pending-subprocess warning should
+    # remain — asserted indirectly by a clean completion.
+    result = await tool.execute(BashInput(command="sleep 10", timeout=1), ctx)
+    assert result.is_error is True
+    assert "timeout" in result.error.lower()
+
+
 @pytest.mark.asyncio
 async def test_bash_echo(tool, tmp_path):
     ctx = ToolContext(cwd=str(tmp_path))

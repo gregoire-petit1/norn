@@ -174,22 +174,61 @@ def _apply_cache_markers(
     return new_messages, new_tools
 
 
-async def _retry_on_rate_limit(coro_fn, max_retries: int, backoff_base: float = 2.0):
-    """Retry coro_fn on 429 rate-limit errors with exponential backoff + jitter."""
+# HTTP status codes worth retrying: rate limit + transient server-side faults.
+# Deliberately excludes 4xx client errors (400/401/403/404/422) and
+# context-window-exceeded, which never succeed on retry.
+_RETRYABLE_STATUS = {429, 500, 502, 503, 504}
+
+# Substrings (lowercased) that mark a transient failure in the error text.
+# litellm surfaces provider faults as message strings, not always status codes
+# (e.g. "APIConnectionError: Github_copilotException - Connection error").
+_TRANSIENT_ERROR_SIGNALS = (
+    "429",
+    "too many requests",
+    "rate_limit",
+    "rate limit",
+    "internalservererror",
+    "internal server error",
+    "connection error",
+    "apiconnectionerror",
+    "connection reset",
+    "connection aborted",
+    "connection closed",
+    "bad gateway",
+    "service unavailable",
+    "gateway timeout",
+    "overloaded",
+    "temporarily unavailable",
+)
+
+
+def _is_transient_error(exc: Exception) -> bool:
+    """True for retryable errors: rate limits + transient connection/5xx faults.
+
+    Allowlist-based: only known-transient conditions retry, so genuine client
+    errors (400/401/403/404/422) and context-window overflows fail fast.
+    """
+    if getattr(exc, "status_code", None) in _RETRYABLE_STATUS:
+        return True
+    haystack = f"{type(exc).__name__} {exc}".lower()
+    return any(signal in haystack for signal in _TRANSIENT_ERROR_SIGNALS)
+
+
+async def _retry_on_transient_error(coro_fn, max_retries: int, backoff_base: float = 2.0):
+    """Retry coro_fn on rate-limit / transient server errors with backoff + jitter."""
     for attempt in range(max_retries + 1):
         try:
             return await coro_fn()
         except Exception as exc:
-            is_rate_limit = (
-                getattr(exc, "status_code", None) == 429
-                or "429" in str(exc)
-                or "rate_limit" in type(exc).__name__.lower()
-                or "too many requests" in str(exc).lower()
-            )
-            if not is_rate_limit or attempt >= max_retries:
+            if not _is_transient_error(exc) or attempt >= max_retries:
                 raise
             delay = (backoff_base**attempt) + random.uniform(0.0, 1.0)
-            _log.warning("llm_rate_limit", attempt=attempt + 1, retry_in_s=round(delay, 1))
+            _log.warning(
+                "llm_transient_retry",
+                attempt=attempt + 1,
+                error_type=type(exc).__name__,
+                retry_in_s=round(delay, 1),
+            )
             await asyncio.sleep(delay)
 
 
@@ -291,7 +330,7 @@ class LiteLLMProvider:
         ) as event:
             completion = self._completion_fn or litellm.acompletion
             _start = __import__("time").monotonic()
-            response = await _retry_on_rate_limit(
+            response = await _retry_on_transient_error(
                 lambda: self._call_with_timeout(completion, kwargs),
                 self._max_retries,
                 self._retry_backoff,
@@ -384,7 +423,7 @@ class LiteLLMProvider:
                 kwargs["tools"] = marked_tools
 
         completion = self._completion_fn or litellm.acompletion
-        response = await _retry_on_rate_limit(
+        response = await _retry_on_transient_error(
             lambda: self._call_with_timeout(completion, kwargs),
             self._max_retries,
             self._retry_backoff,
