@@ -78,7 +78,7 @@ context:
   max_tools_per_turn: 8          # Max tools sent per turn when dynamic_tools enabled
 
 router:
-  enabled: false        # Phase 7: 3-tier routing (fast/standard/powerful) with technical-error fallback
+  enabled: true         # Phase 7: 3-tier routing (fast/standard/powerful) with technical-error fallback
   domain_routing: true  # Phase 10: domain-aware routing signals
   tiers:
     fast:
@@ -88,8 +88,8 @@ router:
       provider: "groq"
       model: "llama-3.3-70b-versatile"
     powerful:
-      provider: "groq"
-      model: "llama-3.3-70b-versatile"
+      provider: "openrouter"
+      model: "meta-llama/llama-3.3-70b-instruct:free"
 
 logging:
   enabled: true

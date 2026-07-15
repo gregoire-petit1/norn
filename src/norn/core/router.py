@@ -138,9 +138,33 @@ _TECHNICAL_ERROR_SIGNALS = (
     # Must trigger fallback, not crash.
     "session usage limit",
     "reached your session",
+    # OpenRouter/Venice malformed response: litellm tries int(finish_reason)
+    # where finish_reason='tool_use_failed'. Retryable on another tier.
+    "tool_use_failed",
 )
 
 _RATE_LIMIT_SIGNALS = ("429", "rate limit", "too many requests", "session usage limit", "reached your session")
+
+_RETRY_AFTER_RE = re.compile(r'"retry_after_seconds"\s*:\s*(\d+(?:\.\d+)?)')
+# Groq uses English: "Please try again in 9 seconds" or "in 2m30.5s"
+_GROQ_RETRY_RE = re.compile(r'try again in (\d+(?:\.\d+)?)\s*s(?:econds?)?', re.IGNORECASE)
+_MAX_AUTO_RETRY_SECONDS = 60.0
+_MAX_SAME_TIER_RETRY_SECONDS = 30.0
+
+
+def _parse_retry_after(exc: Exception) -> float | None:
+    """Extract retry_after_seconds from a rate-limit error, if present and short."""
+    msg = str(exc)
+    m = _RETRY_AFTER_RE.search(msg)
+    if m:
+        secs = float(m.group(1))
+        return secs if secs <= _MAX_AUTO_RETRY_SECONDS else None
+    # Groq plain-text format: "Please try again in 9 seconds"
+    m = _GROQ_RETRY_RE.search(msg)
+    if m:
+        secs = float(m.group(1))
+        return secs if secs <= _MAX_AUTO_RETRY_SECONDS else None
+    return None
 
 _FALLBACK_ORDER: list[str] = ["fast", "standard", "powerful"]
 
@@ -282,6 +306,15 @@ class RouterProvider:
                 except Exception as exc:  # noqa: BLE001
                     last_exc = exc
                     if _is_technical_error(exc):
+                        # Short-window rate limit (e.g. Groq TPM): retry same
+                        # tier after the wait rather than burning the next tier.
+                        retry_after = _parse_retry_after(exc)
+                        if retry_after is not None and retry_after <= _MAX_SAME_TIER_RETRY_SECONDS:
+                            await asyncio.sleep(retry_after + 1)
+                            with contextlib.suppress(Exception):
+                                return await provider.complete(
+                                    messages, tools, temperature, max_tokens
+                                )
                         with contextlib.suppress(Exception):
                             _log.warning(
                                 EventName.FALLBACK,
@@ -293,7 +326,18 @@ class RouterProvider:
                         continue  # escalate to next tier
                     raise
 
+        # All tiers exhausted. If the last failure is a short-window rate limit
+        # (e.g. Venice/OpenRouter burst cap with retry_after < 60s), wait and
+        # retry the last available tier once rather than giving up entirely.
         if last_exc is not None:
+            retry_after = _parse_retry_after(last_exc)
+            if retry_after is not None and tiers_to_try:
+                last_tier = tiers_to_try[-1]
+                await asyncio.sleep(retry_after + 1)
+                with structlog.contextvars.bound_contextvars(tier=last_tier.value):
+                    return await self._providers[last_tier].complete(
+                        messages, tools, temperature, max_tokens
+                    )
             raise last_exc
         msg = "No providers configured for routing"
         raise RuntimeError(msg)
@@ -346,6 +390,19 @@ class RouterProvider:
                         raise  # mid-stream: cannot recover, propagate
                     last_exc = exc
                     if _is_technical_error(exc):
+                        # Short-window rate limit: retry same tier before escalating.
+                        retry_after = _parse_retry_after(exc)
+                        if retry_after is not None and retry_after <= _MAX_SAME_TIER_RETRY_SECONDS:
+                            await asyncio.sleep(retry_after + 1)
+                            try:
+                                async for chunk in provider.stream(
+                                    messages, tools, temperature, max_tokens
+                                ):
+                                    yielded = True
+                                    yield chunk
+                                return
+                            except Exception:  # noqa: BLE001
+                                pass  # retry failed → fall through to escalate
                         with contextlib.suppress(Exception):
                             _log.warning(
                                 EventName.FALLBACK,
@@ -357,7 +414,19 @@ class RouterProvider:
                         continue  # escalate to next tier
                     raise  # non-technical: propagate immediately
 
+        # All tiers exhausted. If the last failure is a short-window rate limit,
+        # wait and retry the last available tier once (streaming path).
         if last_exc is not None:
+            retry_after = _parse_retry_after(last_exc)
+            if retry_after is not None and tiers_to_try:
+                last_tier = tiers_to_try[-1]
+                await asyncio.sleep(retry_after + 1)
+                with structlog.contextvars.bound_contextvars(tier=last_tier.value):
+                    async for chunk in self._providers[last_tier].stream(
+                        messages, tools, temperature, max_tokens
+                    ):
+                        yield chunk
+                    return
             raise last_exc
         msg = "No providers configured for routing"
         raise RuntimeError(msg)

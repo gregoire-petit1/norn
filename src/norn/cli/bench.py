@@ -229,7 +229,7 @@ def bench_run(
             "tiers": {
                 "fast": {"provider": "ollama", "model": "qwen3-coder:480b-cloud", "api_base": None},
                 "standard": {"provider": "groq", "model": "llama-3.3-70b-versatile", "api_base": None},
-                "powerful": {"provider": "groq", "model": "llama-3.3-70b-versatile", "api_base": None},
+                "powerful": {"provider": "openrouter", "model": "meta-llama/llama-3.3-70b-instruct:free", "api_base": None},
             },
         },
     }
