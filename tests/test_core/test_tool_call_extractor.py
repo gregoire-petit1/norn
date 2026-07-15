@@ -224,3 +224,49 @@ class TestRobustness:
         assert len(calls) == 2
         assert calls[0].name == "file_write"
         assert calls[1].name == "bash"
+
+    def test_flat_pattern_with_braces_in_content(self):
+        """Flat JSON tool call with `{}` in content must still parse.
+
+        Reproduces code-gen-003 failure: the model emitted a flat
+        `{"name": "file_write", "arguments": {...}}` where the content
+        contained `self.cache = {}`. The old `[^}]*` regex truncated
+        the match at the first inner `}`, so no call was extracted and
+        the LRUCache implementation was never written.
+        """
+        text = (
+            '{"name": "file_write", "arguments": {"path": "src/solution.py", '
+            '"content": "class LRUCache:\\n    def __init__(self):\\n'
+            '        self.cache = {}\\n        self.order = []\\n"}}'
+        )
+        calls, _ = extract_tool_calls_from_text(text)
+        assert len(calls) == 1
+        assert calls[0].name == "file_write"
+        assert calls[0].arguments["path"] == "src/solution.py"
+        assert "self.cache = {}" in calls[0].arguments["content"]
+
+    def test_flat_pattern_with_nested_object_argument(self):
+        """Flat JSON tool call where one argument is itself an object."""
+        text = (
+            '{"name": "file_edit", "arguments": '
+            '{"path": "a.py", "metadata": {"author": "Norn", "version": 1}}}'
+        )
+        calls, _ = extract_tool_calls_from_text(text)
+        assert len(calls) == 1
+        assert calls[0].arguments["metadata"] == {"author": "Norn", "version": 1}
+
+    def test_flat_pattern_multiline_with_braces(self):
+        """Flat JSON spread over multiple lines with braces in content."""
+        text = (
+            '{\n'
+            '  "name": "file_write",\n'
+            '  "arguments": {\n'
+            '    "path": "out.py",\n'
+            '    "content": "data = {1: 2, 3: 4}\\n"\n'
+            '  }\n'
+            '}'
+        )
+        calls, _ = extract_tool_calls_from_text(text)
+        assert len(calls) == 1
+        assert calls[0].name == "file_write"
+        assert "data = {1: 2, 3: 4}" in calls[0].arguments["content"]

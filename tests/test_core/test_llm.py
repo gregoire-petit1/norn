@@ -232,3 +232,50 @@ async def test_stream_empty_messages_raises():
     with pytest.raises(ValueError, match="messages cannot be empty"):
         async for _ in provider.stream(messages=[]):
             pass
+
+
+@pytest.mark.asyncio
+async def test_complete_request_timeout_passed_to_litellm():
+    """The provider must forward ``request_timeout`` as ``timeout=`` so
+    litellm gives up on stalled upstream providers.
+    """
+    called_with: dict = {}
+
+    async def mock_completion(**kwargs):
+        called_with.update(kwargs)
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock()]
+        mock_response.choices[0].message.content = "ok"
+        mock_response.choices[0].message.tool_calls = None
+        mock_response.usage.prompt_tokens = 1
+        mock_response.usage.completion_tokens = 1
+        mock_response.usage.total_tokens = 2
+        return mock_response
+
+    provider = LiteLLMProvider(
+        "test/model", completion_fn=mock_completion, request_timeout=12.5
+    )
+    await provider.complete(messages=[Message(role=Role.USER, content="hi")])
+    assert called_with.get("timeout") == 12.5
+
+
+@pytest.mark.asyncio
+async def test_complete_raises_on_provider_hang():
+    """If the upstream call hangs beyond ``request_timeout`` we must raise.
+
+    Reproduces ml-tools-001 silent stall: previously the LLM call never
+    returned and the entire bench task hit its 180s wall-clock timeout
+    with no stdout/stderr. With a request timeout, the provider raises
+    ``TimeoutError`` and the agent loop can surface it.
+    """
+    import asyncio
+
+    async def hang(**kwargs):
+        await asyncio.sleep(10)
+        raise AssertionError("should have been cancelled")
+
+    provider = LiteLLMProvider(
+        "test/model", completion_fn=hang, request_timeout=0.05
+    )
+    with pytest.raises(asyncio.TimeoutError):
+        await provider.complete(messages=[Message(role=Role.USER, content="hi")])

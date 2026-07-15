@@ -41,3 +41,17 @@ def test_format_generic_error():
     err = Exception("something weird happened")
     msg = format_llm_error(err)
     assert "something weird" in msg
+
+
+def test_format_ollama_session_limit_inside_api_connection_error():
+    """Ollama cloud surfaces session caps as APIConnectionError. The body
+    contains the real reason — we must report it as a rate limit rather
+    than "cannot connect" (which sends users to debug the wrong layer)."""
+    err = Exception(
+        'litellm.APIConnectionError: OllamaException - {"error":"you '
+        '(gregoire_petit) have reached your session usage limit, '
+        'upgrade for higher limits: https://ollama.com/upgrade"}'
+    )
+    msg = format_llm_error(err)
+    assert "rate limit" in msg.lower()
+    assert "cannot connect" not in msg.lower()

@@ -78,18 +78,18 @@ context:
   max_tools_per_turn: 8          # Max tools sent per turn when dynamic_tools enabled
 
 router:
-  enabled: false        # Phase 7: 3-tier routing (fast/standard/powerful) with technical-error fallback
+  enabled: true         # Phase 7: 3-tier routing (fast/standard/powerful) with technical-error fallback
   domain_routing: true  # Phase 10: domain-aware routing signals
   tiers:
     fast:
       provider: "ollama"
-      model: "qwen2.5-coder:7b"
+      model: "qwen3-coder:480b-cloud"
     standard:
-      provider: "openrouter"
-      model: "stepfun/step-3.5-flash:free"
+      provider: "groq"
+      model: "llama-3.3-70b-versatile"
     powerful:
       provider: "openrouter"
-      model: "anthropic/claude-sonnet-4"
+      model: "meta-llama/llama-3.3-70b-instruct:free"
 
 logging:
   enabled: true

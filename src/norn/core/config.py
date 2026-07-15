@@ -29,6 +29,10 @@ class LLMConfig(BaseModel):
     temperature: float = 0.0
     max_tokens: int = 4096
     api_base: str | None = None
+    # Per-call request timeout in seconds. Guards against silent hangs from
+    # provider stalls (e.g. Ollama cloud occasionally never returns and the
+    # whole bench task times out at the subprocess level with empty stdout).
+    request_timeout: float = 90.0
     # Phase 9 v2 — Workstream G. Opt-out per call site; the provider also
     # gates internally on _supports_prompt_cache(model) so this is harmless
     # on non-supporting models.

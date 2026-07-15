@@ -8,6 +8,11 @@ _RATE_LIMIT_PATTERNS = (
     re.compile(r"429", re.IGNORECASE),
     re.compile(r"rate.?limit", re.IGNORECASE),
     re.compile(r"too many requests", re.IGNORECASE),
+    # Ollama cloud session cap: surfaces as APIConnectionError but the body
+    # carries this exact phrase. Catch it here so users see "rate limit" not
+    # "cannot connect" — debugging the wrong layer wastes time.
+    re.compile(r"session usage limit", re.IGNORECASE),
+    re.compile(r"reached your.*limit", re.IGNORECASE),
 )
 
 _CONNECTION_PATTERNS = (

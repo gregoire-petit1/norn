@@ -205,6 +205,7 @@ class LiteLLMProvider:
         prompt_cache: bool = True,
         max_retries: int = 3,
         retry_backoff: float = 2.0,
+        request_timeout: float | None = 90.0,
     ) -> None:
         self.model = model
         self.api_base = api_base
@@ -219,9 +220,26 @@ class LiteLLMProvider:
         self._prompt_cache = prompt_cache and _supports_prompt_cache(model)
         self._max_retries = max_retries
         self._retry_backoff = retry_backoff
+        self._request_timeout = request_timeout
         # Suppress litellm logging noise
         litellm.suppress_debug_info = True
         _stdlib_logging.getLogger("LiteLLM").setLevel(_stdlib_logging.WARNING)
+
+    async def _call_with_timeout(
+        self,
+        completion: Callable[..., Awaitable[Any]],
+        kwargs: dict,
+    ) -> Any:
+        """Invoke *completion* with belt-and-suspenders timeout.
+
+        Litellm honours the ``timeout`` kwarg natively but some upstream
+        providers ignore it and quietly stall. Wrapping in
+        :func:`asyncio.wait_for` guarantees the call can be cancelled by the
+        agent loop regardless of provider behaviour.
+        """
+        if self._request_timeout is None:
+            return await completion(**kwargs)
+        return await asyncio.wait_for(completion(**kwargs), timeout=self._request_timeout)
 
     async def complete(
         self,
@@ -244,6 +262,8 @@ class LiteLLMProvider:
         }
         if self.api_base:
             kwargs["api_base"] = self.api_base
+        if self._request_timeout is not None:
+            kwargs["timeout"] = self._request_timeout
 
         tool_schemas = build_tool_schemas(tools or [])
         if tool_schemas:
@@ -272,7 +292,7 @@ class LiteLLMProvider:
             completion = self._completion_fn or litellm.acompletion
             _start = __import__("time").monotonic()
             response = await _retry_on_rate_limit(
-                lambda: completion(**kwargs),
+                lambda: self._call_with_timeout(completion, kwargs),
                 self._max_retries,
                 self._retry_backoff,
             )
@@ -345,6 +365,8 @@ class LiteLLMProvider:
         }
         if self.api_base:
             kwargs["api_base"] = self.api_base
+        if self._request_timeout is not None:
+            kwargs["timeout"] = self._request_timeout
 
         tool_schemas = build_tool_schemas(tools or [])
         if tool_schemas:
@@ -363,7 +385,7 @@ class LiteLLMProvider:
 
         completion = self._completion_fn or litellm.acompletion
         response = await _retry_on_rate_limit(
-            lambda: completion(**kwargs),
+            lambda: self._call_with_timeout(completion, kwargs),
             self._max_retries,
             self._retry_backoff,
         )

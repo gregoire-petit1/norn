@@ -18,6 +18,7 @@ from rich.prompt import Confirm
 from prompt_toolkit import PromptSession
 from prompt_toolkit.key_binding import KeyBindings
 
+from norn.cli.banner import print_banner
 from norn.cli.bench import bench_app
 from norn.cli.commands import (
     CommandContext,
@@ -127,6 +128,7 @@ def _build_provider(
         prompt_cache=config.llm.prompt_cache,
         max_retries=config.llm.max_retries,
         retry_backoff=config.llm.retry_backoff,
+        request_timeout=config.llm.request_timeout,
     )
 
 
@@ -328,12 +330,14 @@ def chat(model: ModelOption = None, verbose: VerboseOption = False) -> None:
             api_base=None,
             max_retries=config.llm.max_retries,
             retry_backoff=config.llm.retry_backoff,
+            request_timeout=config.llm.request_timeout,
         ),
         flag_registry=flag_registry,
     )
     completer = build_slash_completer(cmd_registry)
 
-    console.print("[bold]Norn[/bold] - the coding agent that weaves your destiny")
+    print_banner(console)
+    console.print()
     console.print(f"Permission mode: [bold]{config.permissions.mode.value}[/bold]")
     console.print("Type /help for commands. Alt+Enter for newlines. Ctrl+D to exit.\n")
 

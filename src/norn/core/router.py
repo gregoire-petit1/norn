@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import logging
 import re
@@ -133,7 +134,37 @@ _TECHNICAL_ERROR_SIGNALS = (
     "rate limit",
     "http error",  # was "http" — too broad, matched URLs and unrelated errors
     "httpx",  # litellm raises httpx.HTTPError-derived exceptions
+    # Ollama cloud session cap: surfaces inside APIConnectionError body.
+    # Must trigger fallback, not crash.
+    "session usage limit",
+    "reached your session",
+    # OpenRouter/Venice malformed response: litellm tries int(finish_reason)
+    # where finish_reason='tool_use_failed'. Retryable on another tier.
+    "tool_use_failed",
 )
+
+_RATE_LIMIT_SIGNALS = ("429", "rate limit", "too many requests", "session usage limit", "reached your session")
+
+_RETRY_AFTER_RE = re.compile(r'"retry_after_seconds"\s*:\s*(\d+(?:\.\d+)?)')
+# Groq uses English: "Please try again in 9 seconds" or "in 2m30.5s"
+_GROQ_RETRY_RE = re.compile(r'try again in (\d+(?:\.\d+)?)\s*s(?:econds?)?', re.IGNORECASE)
+_MAX_AUTO_RETRY_SECONDS = 60.0
+_MAX_SAME_TIER_RETRY_SECONDS = 30.0
+
+
+def _parse_retry_after(exc: Exception) -> float | None:
+    """Extract retry_after_seconds from a rate-limit error, if present and short."""
+    msg = str(exc)
+    m = _RETRY_AFTER_RE.search(msg)
+    if m:
+        secs = float(m.group(1))
+        return secs if secs <= _MAX_AUTO_RETRY_SECONDS else None
+    # Groq plain-text format: "Please try again in 9 seconds"
+    m = _GROQ_RETRY_RE.search(msg)
+    if m:
+        secs = float(m.group(1))
+        return secs if secs <= _MAX_AUTO_RETRY_SECONDS else None
+    return None
 
 _FALLBACK_ORDER: list[str] = ["fast", "standard", "powerful"]
 
@@ -144,6 +175,12 @@ def _is_technical_error(exc: Exception) -> bool:
     return any(signal in msg for signal in _TECHNICAL_ERROR_SIGNALS)
 
 
+def _is_rate_limit_error(exc: Exception) -> bool:
+    """True for 429 / session-cap errors specifically (subset of technical errors)."""
+    msg = str(exc).lower()
+    return any(signal in msg for signal in _RATE_LIMIT_SIGNALS)
+
+
 def build_litellm_provider(
     provider: str,
     model: str,
@@ -152,6 +189,7 @@ def build_litellm_provider(
     prompt_cache: bool = True,
     max_retries: int = 3,
     retry_backoff: float = 2.0,
+    request_timeout: float | None = 90.0,
 ) -> LiteLLMProvider:
     """Build a LiteLLMProvider, applying the LiteLLM provider-prefix convention.
 
@@ -163,12 +201,17 @@ def build_litellm_provider(
         prefixed_model = f"ollama/{model}"
     elif provider == "openrouter":
         prefixed_model = f"openrouter/{model}"
+    elif provider == "groq":
+        prefixed_model = f"groq/{model}"
+    elif provider == "github_copilot":
+        prefixed_model = f"github_copilot/{model}"
     return LiteLLMProvider(
         model=prefixed_model,
         api_base=api_base,
         prompt_cache=prompt_cache,
         max_retries=max_retries,
         retry_backoff=retry_backoff,
+        request_timeout=request_timeout,
     )
 
 
@@ -257,6 +300,9 @@ class RouterProvider:
         last_exc: Exception | None = None
         for idx, tier in enumerate(tiers_to_try):
             provider = self._providers[tier]
+            next_tier_name = (
+                tiers_to_try[idx + 1].value if idx + 1 < len(tiers_to_try) else None
+            )
             # Bind ``tier`` into the structlog contextvar stack so nested
             # ``llm.complete`` events inherit it. ``bound_contextvars`` restores
             # the prior state on exit — no leak into unrelated call sites.
@@ -264,31 +310,44 @@ class RouterProvider:
                 try:
                     return await provider.complete(messages, tools, temperature, max_tokens)
                 except Exception as exc:  # noqa: BLE001
+                    last_exc = exc
                     if _is_technical_error(exc):
-                        last_exc = exc
-                        next_tier = (
-                            tiers_to_try[idx + 1].value if idx + 1 < len(tiers_to_try) else None
-                        )
-                        # Fail-open: never let logging crash the fallback path.
+                        # Short-window rate limit (e.g. Groq TPM): retry same
+                        # tier after the wait rather than burning the next tier.
+                        retry_after = _parse_retry_after(exc)
+                        if retry_after is not None and retry_after <= _MAX_SAME_TIER_RETRY_SECONDS:
+                            await asyncio.sleep(retry_after + 1)
+                            with contextlib.suppress(Exception):
+                                return await provider.complete(
+                                    messages, tools, temperature, max_tokens
+                                )
                         with contextlib.suppress(Exception):
                             _log.warning(
                                 EventName.FALLBACK,
                                 from_tier=tier.value,
-                                to_tier=next_tier,
+                                to_tier=next_tier_name,
                                 error_type=type(exc).__name__,
                                 error_message=str(exc),
                             )
-                        continue
+                        continue  # escalate to next tier
                     raise
 
+        # All tiers exhausted. If the last failure is a short-window rate limit
+        # (e.g. Venice/OpenRouter burst cap with retry_after < 60s), wait and
+        # retry the last available tier once rather than giving up entirely.
         if last_exc is not None:
+            retry_after = _parse_retry_after(last_exc)
+            if retry_after is not None and tiers_to_try:
+                last_tier = tiers_to_try[-1]
+                await asyncio.sleep(retry_after + 1)
+                with structlog.contextvars.bound_contextvars(tier=last_tier.value):
+                    return await self._providers[last_tier].complete(
+                        messages, tools, temperature, max_tokens
+                    )
             raise last_exc
         msg = "No providers configured for routing"
         raise RuntimeError(msg)
 
-    # TODO(phase7+): support pre-first-chunk fallback in stream() for technical errors.
-    # Current design: no fallback (avoids stream corruption). If first chunk hasn't been
-    # yielded yet, falling back is safe — implement when needed.
     async def stream(
         self,
         messages: list[Message],
@@ -297,10 +356,83 @@ class RouterProvider:
         max_tokens: int = 4096,
         tier_override: Tier | None = None,
     ) -> AsyncIterator[StreamChunk]:
-        tier = tier_override or self.default_tier or _classify_complexity(messages, tools or [])
-        provider = self._providers.get(tier)
-        if provider is None:
-            msg = f"No provider configured for tier {tier}"
-            raise RuntimeError(msg)
-        async for chunk in provider.stream(messages, tools, temperature, max_tokens):
-            yield chunk
+        """Stream with pre-first-chunk fallback across tiers.
+
+        Fallback is safe here because ``LiteLLMProvider.stream()`` is an async
+        generator: the upstream connection (``await completion(**kwargs)``) is
+        established on the FIRST ``__anext__`` call. Any error before we yield
+        a chunk to OUR caller means no partial output has been sent, so we can
+        transparently retry or escalate without corrupting the stream.
+
+        Once at least one chunk is yielded downstream we commit to the current
+        provider — mid-stream switching would corrupt the response.
+        """
+        start_tier = tier_override or self.default_tier or _classify_complexity(
+            messages, tools or []
+        )
+        try:
+            start_index = _FALLBACK_ORDER.index(start_tier.value)
+        except ValueError:
+            start_index = 0
+        tiers_to_try = [
+            Tier(t) for t in _FALLBACK_ORDER[start_index:] if Tier(t) in self._providers
+        ]
+
+        last_exc: Exception | None = None
+        for idx, tier in enumerate(tiers_to_try):
+            provider = self._providers[tier]
+            next_tier_name = (
+                tiers_to_try[idx + 1].value if idx + 1 < len(tiers_to_try) else None
+            )
+            with structlog.contextvars.bound_contextvars(tier=tier.value):
+                yielded = False
+                try:
+                    async for chunk in provider.stream(messages, tools, temperature, max_tokens):
+                        yielded = True
+                        yield chunk
+                    return  # stream completed successfully
+                except Exception as exc:  # noqa: BLE001
+                    if yielded:
+                        raise  # mid-stream: cannot recover, propagate
+                    last_exc = exc
+                    if _is_technical_error(exc):
+                        # Short-window rate limit: retry same tier before escalating.
+                        retry_after = _parse_retry_after(exc)
+                        if retry_after is not None and retry_after <= _MAX_SAME_TIER_RETRY_SECONDS:
+                            await asyncio.sleep(retry_after + 1)
+                            try:
+                                async for chunk in provider.stream(
+                                    messages, tools, temperature, max_tokens
+                                ):
+                                    yielded = True
+                                    yield chunk
+                                return
+                            except Exception:  # noqa: BLE001
+                                pass  # retry failed → fall through to escalate
+                        with contextlib.suppress(Exception):
+                            _log.warning(
+                                EventName.FALLBACK,
+                                from_tier=tier.value,
+                                to_tier=next_tier_name,
+                                error_type=type(exc).__name__,
+                                error_message=str(exc),
+                            )
+                        continue  # escalate to next tier
+                    raise  # non-technical: propagate immediately
+
+        # All tiers exhausted. If the last failure is a short-window rate limit,
+        # wait and retry the last available tier once (streaming path).
+        if last_exc is not None:
+            retry_after = _parse_retry_after(last_exc)
+            if retry_after is not None and tiers_to_try:
+                last_tier = tiers_to_try[-1]
+                await asyncio.sleep(retry_after + 1)
+                with structlog.contextvars.bound_contextvars(tier=last_tier.value):
+                    async for chunk in self._providers[last_tier].stream(
+                        messages, tools, temperature, max_tokens
+                    ):
+                        yield chunk
+                    return
+            raise last_exc
+        msg = "No providers configured for routing"
+        raise RuntimeError(msg)
