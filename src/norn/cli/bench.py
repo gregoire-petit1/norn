@@ -222,14 +222,15 @@ def bench_run(
     config_overrides: dict = {
         "permissions": {"mode": "yolo"},
         "agent": {"max_tool_rounds": 20},
-        # Enable router so Ollama session-limit errors auto-fall back to Groq.
+        # GitHub Copilot Enterprise: high rate limits, no session cap.
+        # Groq/OpenRouter as fallbacks if Copilot ever rejects a request.
         "router": {
             "enabled": True,
             "domain_routing": True,
             "tiers": {
-                "fast": {"provider": "ollama", "model": "qwen3-coder:480b-cloud", "api_base": None},
-                "standard": {"provider": "groq", "model": "llama-3.3-70b-versatile", "api_base": None},
-                "powerful": {"provider": "openrouter", "model": "meta-llama/llama-3.3-70b-instruct:free", "api_base": None},
+                "fast": {"provider": "github_copilot", "model": "claude-sonnet-4.5", "api_base": None},
+                "standard": {"provider": "github_copilot", "model": "claude-sonnet-4.5", "api_base": None},
+                "powerful": {"provider": "github_copilot", "model": "claude-sonnet-4.5", "api_base": None},
             },
         },
     }
@@ -247,10 +248,10 @@ def bench_run(
     console.print(f"[bold]Running {len(tasks)} benchmark tasks...[/bold]\n")
 
     for i, task in enumerate(tasks, 1):
-        # Brief pause between tasks so Groq/Ollama TPM windows partially reset.
+        # Brief pause between tasks.
         if i > 1:
             import time as _time
-            _time.sleep(10)
+            _time.sleep(5)
         console.print(f"[{i}/{len(tasks)}] {task.id}...", end=" ")
         sandbox = create_sandbox(task)
         try:

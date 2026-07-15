@@ -201,6 +201,8 @@ def build_litellm_provider(
         prefixed_model = f"openrouter/{model}"
     elif provider == "groq":
         prefixed_model = f"groq/{model}"
+    elif provider == "github_copilot":
+        prefixed_model = f"github_copilot/{model}"
     return LiteLLMProvider(
         model=prefixed_model,
         api_base=api_base,
