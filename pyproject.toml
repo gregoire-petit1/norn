@@ -35,6 +35,11 @@ web = [
 mcp_tools = [
     "mcp>=1.0",
 ]
+rag = [
+    "rank-bm25>=0.2",
+    "chromadb>=0.5",
+    "httpx>=0.27",
+]
 
 [project.scripts]
 norn = "norn.cli.main:app"
