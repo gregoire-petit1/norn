@@ -180,6 +180,15 @@ def bench_run(
     category: str = typer.Option("", help="Filter by category"),
     task_id: str = typer.Option("", help="Run single task by ID"),
     model: str = typer.Option("", help="Override LLM model"),
+    docker: bool = typer.Option(
+        False, "--docker", help="Run each task in an isolated Docker container"
+    ),
+    docker_image: str = typer.Option(
+        "", "--docker-image", help="Docker image to use (default: norn-bench:latest)"
+    ),
+    build: bool = typer.Option(
+        False, "--build", help="Build/rebuild the Docker image before running (requires --docker)"
+    ),
 ) -> None:
     """Run benchmark tasks against Norn."""
     _ensure_benchmarks_importable()
@@ -194,6 +203,19 @@ def bench_run(
     from benchmarks.runner.models import RunMeta, RunReport
     from benchmarks.runner.persistence import save_report
     from benchmarks.runner.sandbox import cleanup_sandbox, create_sandbox
+
+    if docker:
+        from benchmarks.runner.docker_sandbox import (
+            DEFAULT_IMAGE,
+            build_image,
+            execute_task_docker,
+            image_exists,
+        )
+
+        image = docker_image or DEFAULT_IMAGE
+        if build or not image_exists(image):
+            console.print(f"[bold]Building Docker image {image}...[/bold]")
+            build_image(image=image)
 
     td = Path(tasks_dir) if tasks_dir else _default_tasks_dir()
     rd = Path(results_dir) if results_dir else _default_results_dir()
@@ -239,9 +261,19 @@ def bench_run(
         console.print(f"[{i}/{len(tasks)}] {task.id}...", end=" ")
         sandbox = create_sandbox(task)
         try:
-            trace = asyncio.run(
-                execute_task(task, sandbox_dir=sandbox, config_overrides=config_overrides)
-            )
+            if docker:
+                trace = asyncio.run(
+                    execute_task_docker(
+                        task,
+                        sandbox_dir=sandbox,
+                        config_overrides=config_overrides,
+                        image=docker_image or DEFAULT_IMAGE,
+                    )
+                )
+            else:
+                trace = asyncio.run(
+                    execute_task(task, sandbox_dir=sandbox, config_overrides=config_overrides)
+                )
             result = evaluate_task(task, trace, sandbox_dir=sandbox)
             results.append(result)
 
