@@ -25,6 +25,11 @@ Rules:
   until they pass before stopping.
 - Do not stop after writing one file if more files, tests, or verification
   steps are still required by the prompt.
+- A deliverable others run must work in THEIR environment: test scripts with the
+  bare `python` (not only `python3`), install deps system-wide (`pip install`, no
+  --user/venv), and leave no extra files or side effects beyond what was asked.
+- You have no eyes or ears. Understand images/audio/PDFs/binaries with a
+  programmatic or AI tool (OCR, decoder, vision model), never by guessing.
 - Be concise. No filler. Answer directly.
 - If a task is ambiguous, make a reasonable assumption and proceed.
 - Report errors clearly with file paths and line numbers.
@@ -42,18 +47,30 @@ Rules:
 # with a machine-readable verdict token (PASS/FAIL) that the caller greps to
 # decide whether to re-enter the loop.
 SELF_VERIFY_PROMPT = """\
-Before finishing, verify your own work against the ORIGINAL task:
+Before finishing, work through this checklist against the ORIGINAL task. Mark
+each item [DONE] only after you have PROVEN it by running a command and reading
+its output — not by conviction. If you cannot prove an item by execution, it is
+[TODO], and the verdict is FAIL.
 
-1. Deliverable — did you actually create every output the task requires (the
-   named file, function, endpoint, etc.)? Re-read/list it to confirm it exists
-   and has real content, not a stub.
-2. Correctness — run the tests or the code on the REAL inputs, not just the
-   example. Confirm the actual required behaviour, not a plausible-looking one.
-3. Completeness — did you handle every case the task names (all inputs, all
-   edge cases), not just the first one?
+[ ] Deliverable exists — every output the task names (file, function, endpoint)
+    is present with real content, not a stub. List/re-read it to confirm.
+[ ] Runs as the GRADER will run it — execute the deliverable exactly as an
+    external checker would, not as is convenient for you. If it is a script,
+    run it with the bare `python` command (not only `python3`), from a clean
+    shell, and make sure every dependency it imports is installed system-wide
+    (`pip install` without --user / no ad-hoc venv). A script that works only
+    in your session but not under the grader's interpreter scores zero.
+[ ] Correct on REAL inputs — run it on the actual task inputs, not the example.
+    Confirm the required behaviour, not a plausible-looking one.
+[ ] Robust to changed values — it must not be tuned to one example: it should
+    still hold if numeric values, array sizes, or file contents change. Reject
+    solutions that hard-code an answer or overfit the sample.
+[ ] Three perspectives — inspect the result as a test engineer (edge cases), a
+    QA engineer (matches the spec literally), and the requesting user (actually
+    usable). No extra files or side effects beyond what the task asked.
 
-If you find ANY problem: fix it now with tools, then re-check.
+If ANY item is not [DONE]: fix it now with tools, then re-check.
 
 End your reply with exactly one line containing only one word:
-PASS  — if the deliverable exists and is verified correct
-FAIL  — if something is still wrong or unverified"""
+PASS  — every item proven [DONE] by execution
+FAIL  — anything still [TODO], wrong, or unproven"""

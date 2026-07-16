@@ -1,11 +1,18 @@
 """Tests for system prompt (W1.3)."""
 
-from norn.core.prompts import AGENT_SYSTEM_PROMPT
+from norn.core.prompts import AGENT_SYSTEM_PROMPT, SELF_VERIFY_PROMPT
 
 
 def test_agent_system_prompt_is_compact():
-    """System prompt should stay roughly bounded (~1200 chars)."""
-    assert len(AGENT_SYSTEM_PROMPT) < 1200
+    """System prompt should stay bounded (~1500 chars).
+
+    Cap raised from 1200 → 1500 for two KIRA-informed guidance blocks tied to
+    observed terminal-bench failures: deliverable env-robustness (openssl task
+    passed under python3 but the grader's `python` lacked the dep) and the "no
+    eyes/ears → use programmatic tools for media" rule (chess-from-image,
+    gcode decode). The prompt is prompt-cached, so the per-turn cost is marginal.
+    """
+    assert len(AGENT_SYSTEM_PROMPT) < 1500
     assert len(AGENT_SYSTEM_PROMPT) > 50  # not empty
 
 
@@ -29,3 +36,20 @@ def test_agent_system_prompt_contains_identity():
 def test_agent_system_prompt_mentions_tools():
     """System prompt should mention tool usage."""
     assert "tool" in AGENT_SYSTEM_PROMPT.lower()
+
+
+def test_self_verify_prompt_ends_with_verdict_token():
+    """Caller greps the last PASS/FAIL token, so the prompt must demand one."""
+    assert "PASS" in SELF_VERIFY_PROMPT
+    assert "FAIL" in SELF_VERIFY_PROMPT
+
+
+def test_self_verify_prompt_demands_execution_proof():
+    """Regression: false-PASS failures (gcode/openssl) came from rubber-stamping.
+    The verify prompt must require proof-by-execution, not conviction."""
+    lower = SELF_VERIFY_PROMPT.lower()
+    assert "prove" in lower or "proven" in lower
+    # env-robustness guard (openssl python vs python3)
+    assert "python" in lower
+    # anti-overfit guard (video-processing tuned to example)
+    assert any(kw in lower for kw in ("real inputs", "changed values", "overfit"))
