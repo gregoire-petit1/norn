@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Awaitable, Callable
 
@@ -263,10 +264,119 @@ def build_slash_completer(registry: SlashCommandRegistry):
     )
 
 
+_PLAN_PREFIX = """\
+Before writing any code, produce a structured plan:
+
+1. **Task** — restate in your own words what needs to be done
+2. **Files** — list every file to create or modify
+3. **Changes** — describe each function/class/block to add or change
+4. **Tests** — describe how you will verify correctness
+
+Then implement the plan step by step.
+
+Task: """
+
+_PROOF_PROMPT = """\
+Review the work completed so far from three perspectives:
+
+**Test-engineer:** Are edge cases handled? What inputs could break this?
+**QA:** Does the output match the original spec literally?
+**End-user:** Would this actually work in practice? Any correctness or usability issues?
+
+For each problem found: describe the issue and fix it.
+Conclude with either PASS (everything correct) or FAIL (and list what was fixed).\
+"""
+
+
+_REFLECT_PROMPT = """\
+The previous task is complete. Reflect on how it went:
+
+1. What worked well?
+2. What went wrong or was inefficient?
+3. What would you do differently next time?
+
+Write 1-3 concise lessons learned as bullet points. These will be saved and injected into future sessions.\
+"""
+
+
+def _register_ramp_commands(reg: SlashCommandRegistry) -> None:
+    """Register /plan and /proof RAMP commands."""
+
+    @slash_command("/plan", description="Plan then implement: /plan <task>", registry=reg)
+    async def cmd_plan(ctx: CommandContext, args: str) -> None:
+        from norn.cli.renderer import StreamRenderer
+
+        task = args.strip()
+        if not task:
+            ctx.console.print("[dim]Usage: /plan <task description>[/dim]")
+            return
+        ctx.console.print("[bold cyan]Planning…[/bold cyan]")
+        renderer = StreamRenderer(ctx.console)
+        try:
+            await renderer.render(ctx.agent.run_stream(_PLAN_PREFIX + task))
+            ctx.console.print()
+        except Exception as exc:  # noqa: BLE001
+            ctx.console.print(f"[red]{exc}[/red]")
+
+    @slash_command("/proof", description="Verify last task from 3 perspectives", registry=reg)
+    async def cmd_proof(ctx: CommandContext, args: str) -> None:
+        from norn.cli.renderer import StreamRenderer
+
+        if not ctx.agent.history:
+            ctx.console.print("[dim]No task history to verify.[/dim]")
+            return
+        ctx.console.print("[bold cyan]Verifying…[/bold cyan]")
+        renderer = StreamRenderer(ctx.console)
+        try:
+            await renderer.render(ctx.agent.run_stream(_PROOF_PROMPT))
+            ctx.console.print()
+        except Exception as exc:  # noqa: BLE001
+            ctx.console.print(f"[red]{exc}[/red]")
+
+    @slash_command("/reflect", description="Reflect on last task and save lessons", registry=reg)
+    async def cmd_reflect(ctx: CommandContext, args: str) -> None:
+        from norn.cli.renderer import StreamRenderer
+
+        if not ctx.agent.history:
+            ctx.console.print("[dim]No task history to reflect on.[/dim]")
+            return
+        store = getattr(ctx.agent, "memory_store", None)
+        if store is None:
+            ctx.console.print("[dim]Memory not enabled — lessons won't be saved.[/dim]")
+        ctx.console.print("[bold cyan]Reflecting…[/bold cyan]")
+        history_len_before = len(ctx.agent.history)
+        renderer = StreamRenderer(ctx.console)
+        try:
+            await renderer.render(ctx.agent.run_stream(_REFLECT_PROMPT))
+            ctx.console.print()
+        except Exception as exc:  # noqa: BLE001
+            ctx.console.print(f"[red]{exc}[/red]")
+            return
+
+        if store is not None:
+            # Grab reflection text from the assistant message appended by run_stream
+            reflection = ""
+            for msg in ctx.agent.history[history_len_before:]:
+                from norn.core.models import Role as _Role
+
+                if getattr(msg, "role", None) == _Role.ASSISTANT and msg.content:
+                    reflection = msg.content
+                    break
+            if reflection:
+                from datetime import datetime, timezone
+
+                ts = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+                lesson = f"## Reflection [{ts}]\n\n{reflection.strip()}"
+                with contextlib.suppress(Exception):
+                    store.append_lesson(lesson)
+                ctx.console.print("[green]Lessons saved.[/green]")
+
+
 def build_default_registry() -> SlashCommandRegistry:
     """Create a registry with all default commands."""
     reg = SlashCommandRegistry()
     _register_session_commands(reg)
     _register_debug_commands(reg)
     _register_config_commands(reg)
+    _register_ramp_commands(reg)
     return reg

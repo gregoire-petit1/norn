@@ -33,6 +33,7 @@ flags:
   web_search: false     # Phase 6: DuckDuckGo search + web fetch
   mcp: false            # Phase 6: MCP server tools
   bench: false           # Phase 10: Benchmark harness
+  vision_tools: false    # image_read multimodal tool (needs vision-capable model)
 
 mcp:
   enabled: false        # Phase 6: MCP server integration
@@ -41,6 +42,12 @@ mcp:
 
 agent:
   max_tool_rounds: 25
+  # Autonomous self-verification for headless `norn run`: after the main run,
+  # inject up to N verify turns so the agent confirms its deliverable exists
+  # and is correct before exiting. Off by default (interactive users verify
+  # themselves); benchmark/headless callers enable via config override.
+  auto_verify: false
+  auto_verify_max_rounds: 2
   minify_tool_schemas: true
   max_tool_result_chars: 8000
   max_turn_output_chars: 30000   # Per-turn budget across all tool calls

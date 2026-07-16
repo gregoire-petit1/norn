@@ -388,3 +388,205 @@ async def test_run_stream_updates_history(registry):
 
     assert len(agent.history) == 2  # user + assistant
     assert agent.user_message_count == 1
+
+
+# --------------------------------------------------------------------------- #
+# Phase 3: failure detection + post-turn hook
+# --------------------------------------------------------------------------- #
+
+
+from norn.core.models import Message, Role
+
+
+class TestDetectFailurePatterns:
+    def _make_msg(self, role, content=None, tool_calls=None):
+        return Message(role=role, content=content, tool_calls=tool_calls)
+
+    def test_max_rounds_detected(self):
+        patterns = AgentLoop._detect_failure_patterns([], "[Max tool rounds reached]")
+        assert "max_rounds" in patterns
+
+    def test_no_pattern_on_normal_content(self):
+        patterns = AgentLoop._detect_failure_patterns([], "All done!")
+        assert patterns == []
+
+    def test_tool_loop_detected(self):
+        call = ToolCall(id="c1", name="bash", arguments={"command": "ls"})
+        msgs = [
+            self._make_msg(Role.ASSISTANT, tool_calls=[call]),
+            self._make_msg(Role.ASSISTANT, tool_calls=[call]),
+            self._make_msg(Role.ASSISTANT, tool_calls=[call]),
+        ]
+        patterns = AgentLoop._detect_failure_patterns(msgs, "done")
+        assert any("tool_loop:bash" in p for p in patterns)
+
+    def test_tool_loop_not_detected_below_threshold(self):
+        call = ToolCall(id="c1", name="bash", arguments={"command": "ls"})
+        msgs = [
+            self._make_msg(Role.ASSISTANT, tool_calls=[call]),
+            self._make_msg(Role.ASSISTANT, tool_calls=[call]),
+        ]
+        patterns = AgentLoop._detect_failure_patterns(msgs, "done")
+        assert not any("tool_loop" in p for p in patterns)
+
+    def test_error_flood_detected(self):
+        msgs = [
+            self._make_msg(Role.TOOL, content="Error: file not found"),
+            self._make_msg(Role.TOOL, content="Exit code 1"),
+            self._make_msg(Role.TOOL, content="Timeout: exceeded 30s"),
+        ]
+        patterns = AgentLoop._detect_failure_patterns(msgs, "done")
+        assert "error_flood" in patterns
+
+    def test_error_flood_not_detected_below_threshold(self):
+        msgs = [
+            self._make_msg(Role.TOOL, content="Error: file not found"),
+            self._make_msg(Role.TOOL, content="ok output"),
+            self._make_msg(Role.TOOL, content="Exit code 1"),
+        ]
+        patterns = AgentLoop._detect_failure_patterns(msgs, "done")
+        assert "error_flood" not in patterns
+
+
+@pytest.mark.asyncio
+async def test_post_turn_hook_sets_last_failure_patterns(registry):
+    """_post_turn_hook populates last_failure_patterns on the agent."""
+    llm = AsyncMock()
+    llm.stream = lambda **kwargs: _mock_stream_text(["done"])
+
+    agent = AgentLoop(llm=llm, registry=registry)
+    async for _ in agent.run_stream("hi"):
+        pass
+    assert isinstance(agent.last_failure_patterns, list)
+
+
+@pytest.mark.asyncio
+async def test_post_turn_hook_logs_to_daily_when_patterns_found(registry, tmp_path):
+    """When max_rounds is reached with memory_store set, daily log is written."""
+    from norn.memory.models import MemoryConfig
+    from norn.memory.store import MemoryStore
+
+    store = MemoryStore(MemoryConfig(memory_dir=str(tmp_path / "mem")))
+    store.ensure_dirs()
+
+    call_count = 0
+
+    async def _always_tool(**kwargs):
+        nonlocal call_count
+        call_count += 1
+        yield StreamChunk(
+            content=None,
+            tool_calls=[ToolCall(id=f"c{call_count}", name="echo", arguments={"text": "x"})],
+            done=True,
+        )
+
+    llm = AsyncMock()
+    llm.stream = _always_tool
+
+    agent = AgentLoop(
+        llm=llm,
+        registry=registry,
+        memory_store=store,
+        max_tool_rounds=2,
+    )
+    async for _ in agent.run_stream("loop forever"):
+        pass
+
+    assert "max_rounds" in agent.last_failure_patterns
+    from datetime import datetime, timezone
+
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    log = store.read_daily(today)
+    assert log is not None
+    assert "max_rounds" in log
+
+
+# --------------------------------------------------------------------------- #
+# Autonomous self-verification (run_verified)
+# --------------------------------------------------------------------------- #
+
+
+class TestExtractVerdict:
+    def test_pass(self):
+        assert AgentLoop._extract_verdict("all good\nPASS") == "pass"
+
+    def test_fail(self):
+        assert AgentLoop._extract_verdict("missing file\nFAIL") == "fail"
+
+    def test_last_token_wins(self):
+        # "or FAIL" in reasoning must not override the final PASS verdict
+        text = "I'll conclude with PASS or FAIL.\n...\nPASS"
+        assert AgentLoop._extract_verdict(text) == "pass"
+
+    def test_unknown_when_absent(self):
+        assert AgentLoop._extract_verdict("no verdict here") == "unknown"
+
+    def test_empty(self):
+        assert AgentLoop._extract_verdict("") == "unknown"
+
+
+@pytest.mark.asyncio
+async def test_run_verified_stops_on_pass(registry):
+    """A PASS on the first verify turn should stop further verification."""
+    turns = []
+
+    def _stream(**kwargs):
+        turns.append(kwargs["messages"][-1].content)
+        # main run -> some work text; verify turn -> PASS
+        idx = len(turns)
+        if idx == 1:
+            return _mock_stream_text(["did the work"])
+        return _mock_stream_text(["looks correct\n", "PASS"])
+
+    llm = AsyncMock()
+    llm.stream = _stream
+
+    agent = AgentLoop(llm=llm, registry=registry)
+    events = []
+    async for e in agent.run_verified("do the task", max_verify_rounds=2):
+        events.append(e)
+
+    # 1 main + exactly 1 verify turn (stopped on PASS)
+    assert len(turns) == 2
+    assert events[-1].type == EventType.DONE
+
+
+@pytest.mark.asyncio
+async def test_run_verified_retries_on_fail(registry):
+    """FAIL verdicts should consume all verify rounds."""
+    turns = []
+
+    def _stream(**kwargs):
+        turns.append(kwargs["messages"][-1].content)
+        if len(turns) == 1:
+            return _mock_stream_text(["did the work"])
+        return _mock_stream_text(["still broken\n", "FAIL"])
+
+    llm = AsyncMock()
+    llm.stream = _stream
+
+    agent = AgentLoop(llm=llm, registry=registry)
+    async for _ in agent.run_verified("do the task", max_verify_rounds=2):
+        pass
+
+    # 1 main + 2 verify turns (both FAIL, exhausted rounds)
+    assert len(turns) == 3
+
+
+@pytest.mark.asyncio
+async def test_run_verified_zero_rounds_is_plain_run(registry):
+    """max_verify_rounds=0 must behave like a single run_stream."""
+    turns = []
+
+    def _stream(**kwargs):
+        turns.append(kwargs["messages"][-1].content)
+        return _mock_stream_text(["done"])
+
+    llm = AsyncMock()
+    llm.stream = _stream
+
+    agent = AgentLoop(llm=llm, registry=registry)
+    async for _ in agent.run_verified("do the task", max_verify_rounds=0):
+        pass
+
+    assert len(turns) == 1

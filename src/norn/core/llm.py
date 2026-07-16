@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import random
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
@@ -173,6 +174,64 @@ def _apply_cache_markers(
     return new_messages, new_tools
 
 
+# HTTP status codes worth retrying: rate limit + transient server-side faults.
+# Deliberately excludes 4xx client errors (400/401/403/404/422) and
+# context-window-exceeded, which never succeed on retry.
+_RETRYABLE_STATUS = {429, 500, 502, 503, 504}
+
+# Substrings (lowercased) that mark a transient failure in the error text.
+# litellm surfaces provider faults as message strings, not always status codes
+# (e.g. "APIConnectionError: Github_copilotException - Connection error").
+_TRANSIENT_ERROR_SIGNALS = (
+    "429",
+    "too many requests",
+    "rate_limit",
+    "rate limit",
+    "internalservererror",
+    "internal server error",
+    "connection error",
+    "apiconnectionerror",
+    "connection reset",
+    "connection aborted",
+    "connection closed",
+    "bad gateway",
+    "service unavailable",
+    "gateway timeout",
+    "overloaded",
+    "temporarily unavailable",
+)
+
+
+def _is_transient_error(exc: Exception) -> bool:
+    """True for retryable errors: rate limits + transient connection/5xx faults.
+
+    Allowlist-based: only known-transient conditions retry, so genuine client
+    errors (400/401/403/404/422) and context-window overflows fail fast.
+    """
+    if getattr(exc, "status_code", None) in _RETRYABLE_STATUS:
+        return True
+    haystack = f"{type(exc).__name__} {exc}".lower()
+    return any(signal in haystack for signal in _TRANSIENT_ERROR_SIGNALS)
+
+
+async def _retry_on_transient_error(coro_fn, max_retries: int, backoff_base: float = 2.0):
+    """Retry coro_fn on rate-limit / transient server errors with backoff + jitter."""
+    for attempt in range(max_retries + 1):
+        try:
+            return await coro_fn()
+        except Exception as exc:
+            if not _is_transient_error(exc) or attempt >= max_retries:
+                raise
+            delay = (backoff_base**attempt) + random.uniform(0.0, 1.0)
+            _log.warning(
+                "llm_transient_retry",
+                attempt=attempt + 1,
+                error_type=type(exc).__name__,
+                retry_in_s=round(delay, 1),
+            )
+            await asyncio.sleep(delay)
+
+
 class LiteLLMProvider:
     """LLM provider using litellm for universal model support."""
 
@@ -183,6 +242,8 @@ class LiteLLMProvider:
         *,
         completion_fn: Callable[..., Awaitable[Any]] | None = None,
         prompt_cache: bool = True,
+        max_retries: int = 3,
+        retry_backoff: float = 2.0,
         request_timeout: float | None = 90.0,
     ) -> None:
         self.model = model
@@ -196,6 +257,8 @@ class LiteLLMProvider:
         # Gate at construction: drop the flag immediately if the model is
         # not on the allowlist, so the hot path stays a single bool check.
         self._prompt_cache = prompt_cache and _supports_prompt_cache(model)
+        self._max_retries = max_retries
+        self._retry_backoff = retry_backoff
         self._request_timeout = request_timeout
         # Suppress litellm logging noise
         litellm.suppress_debug_info = True
@@ -267,7 +330,11 @@ class LiteLLMProvider:
         ) as event:
             completion = self._completion_fn or litellm.acompletion
             _start = __import__("time").monotonic()
-            response = await self._call_with_timeout(completion, kwargs)
+            response = await _retry_on_transient_error(
+                lambda: self._call_with_timeout(completion, kwargs),
+                self._max_retries,
+                self._retry_backoff,
+            )
 
             # Guard against malformed / minimal responses:
             # - ``response.choices`` may be empty (provider refusal, mocks).
@@ -356,7 +423,11 @@ class LiteLLMProvider:
                 kwargs["tools"] = marked_tools
 
         completion = self._completion_fn or litellm.acompletion
-        response = await self._call_with_timeout(completion, kwargs)
+        response = await _retry_on_transient_error(
+            lambda: self._call_with_timeout(completion, kwargs),
+            self._max_retries,
+            self._retry_backoff,
+        )
 
         # Accumulator for fragmented tool calls (keyed by index)
         tc_accum: dict[int, dict] = {}

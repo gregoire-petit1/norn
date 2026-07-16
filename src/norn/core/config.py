@@ -37,6 +37,9 @@ class LLMConfig(BaseModel):
     # gates internally on _supports_prompt_cache(model) so this is harmless
     # on non-supporting models.
     prompt_cache: bool = True
+    # Retry on 429 rate-limit errors with exponential backoff + jitter.
+    max_retries: int = 3
+    retry_backoff: float = 2.0
 
 
 class PermissionsConfig(BaseModel):
@@ -50,6 +53,9 @@ class FlagsConfig(BaseModel):
     web_search: bool = False
     mcp: bool = False
     bench: bool = False
+    # image_read multimodal tool. Off by default (needs a vision-capable model
+    # and adds sub-call cost); benchmark/headless callers enable it.
+    vision_tools: bool = False
 
 
 class JudgeConfig(BaseModel):
@@ -108,6 +114,12 @@ class LoggingConfig(BaseModel):
 
 class AgentConfig(BaseModel):
     max_tool_rounds: int = 25
+    # Autonomous self-verification (headless `norn run`): after the main run,
+    # inject up to N verify turns so the agent checks its own deliverable and
+    # fixes gaps before exiting. Off by default (interactive users drive their
+    # own verification); benchmark/headless callers opt in.
+    auto_verify: bool = False
+    auto_verify_max_rounds: int = 2
     minify_tool_schemas: bool = True
     max_tool_result_chars: int = 8000
     max_turn_output_chars: int = 30000  # Per-turn budget across all tool calls

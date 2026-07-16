@@ -324,11 +324,15 @@ async def test_fallback_event_emitted_on_tier_failure(log_dir: Path) -> None:
         permission_mode=PermissionMode.AUTO,
     )
 
-    # First tier 'fast' fails with a technical (503) error -> router falls back.
+    # First tier 'fast' fails with a NON-transient technical error (malformed
+    # response) -> router falls back to the next tier. A transient 5xx/connection
+    # error would instead be retried within the same tier by the LLM layer
+    # (see test_llm transient-retry tests), so we use tool_use_failed here to
+    # exercise the router fallback path specifically.
     # Second tier 'standard' returns a final response (no tool calls, keep test simple).
     ok = _make_llm_response(content="recovered", tool_calls=None)
     acompletion = AsyncMock(
-        side_effect=[RuntimeError("http error 503 service unavailable"), ok],
+        side_effect=[RuntimeError("finish_reason tool_use_failed"), ok],
     )
 
     with patch("litellm.acompletion", new=acompletion):
@@ -347,7 +351,7 @@ async def test_fallback_event_emitted_on_tier_failure(log_dir: Path) -> None:
     assert fb["from_tier"] == "fast"
     assert fb["to_tier"] == "standard"
     assert fb["error_type"] == "RuntimeError"
-    assert "503" in fb["error_message"]
+    assert "tool_use_failed" in fb["error_message"]
 
     # Outer agent.run recovered.
     end_events = [e for e in events if e.get("event") == "agent.run" and e.get("phase") == "end"]

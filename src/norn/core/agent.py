@@ -101,19 +101,85 @@ class AgentLoop:
         # Session stats
         self.user_message_count = 0
         self.tool_call_count = 0
+        # W1.1: cache built system prompt. Invalidate when memory or lessons change.
+        # Env snapshot and repo map are static after construction.
+        self._system_prompt_cache: str | None = None
+        self._last_prompt_key: tuple[str, str] = ("", "")
+        # W3.1/W3.2: track failure patterns from the last completed turn.
+        self.last_failure_patterns: list[str] = []
 
     def _build_system_prompt(self) -> str:
-        """Build system prompt with optional memory injection."""
+        """Build system prompt with optional memory + lessons injection."""
+        memory_content = self.memory_store.read_memory() if self.memory_store is not None else ""
+        lessons_content = self.memory_store.read_lessons() if self.memory_store is not None else ""
+        prompt_key = (memory_content, lessons_content)
+
+        if self._system_prompt_cache is not None and prompt_key == self._last_prompt_key:
+            return self._system_prompt_cache
+
         prompt = self.system_prompt
-        if self.memory_store is not None:
-            memory_content = self.memory_store.read_memory()
-            if memory_content.strip():
-                prompt += "\n\n## Persistent Memory\n\n" + memory_content
+        if memory_content.strip():
+            prompt += "\n\n## Persistent Memory\n\n" + memory_content
+        if lessons_content.strip():
+            prompt += "\n\n## Learned Lessons\n\n" + lessons_content
         if self._env_snapshot:
             prompt += "\n\n" + self._env_snapshot
         if self._repo_map:
             prompt += "\n\n" + self._repo_map
+
+        self._system_prompt_cache = prompt
+        self._last_prompt_key = prompt_key
         return prompt
+
+    @staticmethod
+    def _detect_failure_patterns(messages: list[Message], final_content: str | None) -> list[str]:
+        """Detect failure patterns in a completed turn. Returns pattern name list."""
+        import json as _json
+
+        patterns: list[str] = []
+
+        if final_content == "[Max tool rounds reached]":
+            patterns.append("max_rounds")
+
+        # Tool loop: same tool + args called 3+ times
+        call_counts: dict[str, int] = {}
+        for msg in messages:
+            if msg.role == Role.ASSISTANT and msg.tool_calls:
+                for tc in msg.tool_calls:
+                    key = f"{tc.name}:{_json.dumps(tc.arguments, sort_keys=True)}"
+                    call_counts[key] = call_counts.get(key, 0) + 1
+        for key, count in call_counts.items():
+            if count >= 3:
+                patterns.append(f"tool_loop:{key.split(':', 1)[0]}")
+
+        # Error flood: 3+ consecutive tool result errors
+        consecutive = 0
+        max_consecutive = 0
+        for msg in messages:
+            if msg.role == Role.TOOL:
+                content = msg.content or ""
+                is_error = any(
+                    content.startswith(prefix)
+                    for prefix in ("Exit code", "Error:", "Unknown tool:", "Permission denied", "Timeout:")
+                )
+                consecutive = consecutive + 1 if is_error else 0
+                max_consecutive = max(max_consecutive, consecutive)
+        if max_consecutive >= 3:
+            patterns.append("error_flood")
+
+        return patterns
+
+    def _post_turn_hook(self, messages: list[Message], final_content: str | None) -> None:
+        """Log failure patterns after a turn completes. Fail-open."""
+        self.last_failure_patterns = self._detect_failure_patterns(messages, final_content)
+        if self.last_failure_patterns and self.memory_store is not None:
+            from datetime import datetime, timezone
+
+            date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+            ts = datetime.now(timezone.utc).isoformat(timespec="seconds")
+            entry = f"[{ts}] Failure patterns: {', '.join(self.last_failure_patterns)}"
+            with contextlib.suppress(Exception):
+                self.memory_store.append_daily(date_str, entry)
 
     async def run(self, user_input: str) -> LLMResponse:
         """Run one turn of the agent loop."""
@@ -167,6 +233,7 @@ class AgentLoop:
 
             if not response.has_tool_calls:
                 self.history.append(Message(role=Role.ASSISTANT, content=response.content))
+                self._post_turn_hook(messages, response.content)
                 return response
 
             # Process tool calls
@@ -194,6 +261,7 @@ class AgentLoop:
         # Safety: max rounds reached
         final = LLMResponse(content="[Max tool rounds reached]")
         self.history.append(Message(role=Role.ASSISTANT, content=final.content))
+        self._post_turn_hook(messages, final.content)
         return final
 
     async def run_stream(self, user_input: str) -> AsyncIterator[AgentEvent]:
@@ -256,6 +324,7 @@ class AgentLoop:
                 self.history.append(
                     Message(role=Role.ASSISTANT, content=accumulated_content or None)
                 )
+                self._post_turn_hook(messages, accumulated_content)
                 yield AgentEvent(type=EventType.DONE, usage=final_usage)
                 return
 
@@ -302,7 +371,54 @@ class AgentLoop:
 
         # Safety: max tool rounds reached
         self.history.append(Message(role=Role.ASSISTANT, content="[Max tool rounds reached]"))
+        self._post_turn_hook(messages, "[Max tool rounds reached]")
         yield AgentEvent(type=EventType.DONE)
+
+    @staticmethod
+    def _extract_verdict(text: str) -> str:
+        """Return 'pass' / 'fail' / 'unknown' from a self-verification reply.
+
+        Uses the LAST standalone PASS/FAIL token so intermediate mentions
+        ("...or FAIL") in the agent's reasoning don't override the final verdict.
+        """
+        import re
+
+        matches = re.findall(r"\b(PASS|FAIL)\b", text or "")
+        if not matches:
+            return "unknown"
+        return matches[-1].lower()
+
+    async def run_verified(
+        self,
+        user_input: str,
+        *,
+        max_verify_rounds: int = 2,
+        verify_prompt: str | None = None,
+    ) -> AsyncIterator[AgentEvent]:
+        """Run the task, then self-verify up to ``max_verify_rounds`` times.
+
+        After the main run, injects a self-verification turn (same conversation,
+        so history/cache carry over). If the agent's verdict is not PASS, it has
+        already been asked to fix problems with tools during that same turn;
+        another verify turn re-checks. Stops early on PASS or when rounds are
+        exhausted. Falls back to a plain single run when ``max_verify_rounds`` is
+        0, preserving existing behaviour.
+        """
+        from norn.core.prompts import SELF_VERIFY_PROMPT
+
+        prompt = verify_prompt or SELF_VERIFY_PROMPT
+
+        async for event in self.run_stream(user_input):
+            yield event
+
+        for _round in range(max_verify_rounds):
+            verdict_text: list[str] = []
+            async for event in self.run_stream(prompt):
+                if event.type == EventType.TEXT_DELTA and event.content:
+                    verdict_text.append(event.content)
+                yield event
+            if self._extract_verdict("".join(verdict_text)) == "pass":
+                break
 
     def _get_tools_for_turn(self, messages: list[Message]) -> list[dict] | None:
         """Get tool schemas for this turn, optionally filtered by selector."""

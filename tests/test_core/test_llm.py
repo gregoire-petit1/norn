@@ -279,3 +279,91 @@ async def test_complete_raises_on_provider_hang():
     )
     with pytest.raises(asyncio.TimeoutError):
         await provider.complete(messages=[Message(role=Role.USER, content="hi")])
+
+
+# --------------------------------------------------------------------------- #
+# Transient-error retry (rate limit + connection/5xx faults)
+# --------------------------------------------------------------------------- #
+
+from norn.core.llm import _is_transient_error, _retry_on_transient_error
+
+
+class _StatusError(Exception):
+    def __init__(self, status_code):
+        super().__init__(f"status {status_code}")
+        self.status_code = status_code
+
+
+class TestIsTransientError:
+    def test_429_status(self):
+        assert _is_transient_error(_StatusError(429)) is True
+
+    def test_500_status(self):
+        assert _is_transient_error(_StatusError(503)) is True
+
+    def test_400_not_transient(self):
+        assert _is_transient_error(_StatusError(400)) is False
+
+    def test_connection_error_by_message(self):
+        assert _is_transient_error(Exception("APIConnectionError: Connection error")) is True
+
+    def test_internal_server_error_by_message(self):
+        assert _is_transient_error(Exception("InternalServerError: Overloaded")) is True
+
+    def test_rate_limit_by_message(self):
+        assert _is_transient_error(Exception("429 too many requests")) is True
+
+    def test_context_window_not_transient(self):
+        assert _is_transient_error(Exception("context window exceeded")) is False
+
+    def test_auth_error_not_transient(self):
+        assert _is_transient_error(_StatusError(401)) is False
+
+
+@pytest.mark.asyncio
+async def test_retry_succeeds_after_transient_failures():
+    """A connection error should be retried and eventually succeed."""
+    calls = {"n": 0}
+
+    async def flaky():
+        calls["n"] += 1
+        if calls["n"] < 3:
+            raise Exception("APIConnectionError: Connection error")
+        return "ok"
+
+    with patch("norn.core.llm.asyncio.sleep", new=AsyncMock()):
+        result = await _retry_on_transient_error(flaky, max_retries=3, backoff_base=0.0)
+
+    assert result == "ok"
+    assert calls["n"] == 3
+
+
+@pytest.mark.asyncio
+async def test_retry_exhausts_and_raises():
+    """Persistent transient error raises after exhausting retries."""
+    calls = {"n": 0}
+
+    async def always_fail():
+        calls["n"] += 1
+        raise Exception("InternalServerError: Overloaded")
+
+    with patch("norn.core.llm.asyncio.sleep", new=AsyncMock()):
+        with pytest.raises(Exception, match="Overloaded"):
+            await _retry_on_transient_error(always_fail, max_retries=2, backoff_base=0.0)
+
+    assert calls["n"] == 3  # initial + 2 retries
+
+
+@pytest.mark.asyncio
+async def test_non_transient_error_not_retried():
+    """A 400 client error must fail immediately without retry."""
+    calls = {"n": 0}
+
+    async def bad_request():
+        calls["n"] += 1
+        raise _StatusError(400)
+
+    with pytest.raises(_StatusError):
+        await _retry_on_transient_error(bad_request, max_retries=3, backoff_base=0.0)
+
+    assert calls["n"] == 1

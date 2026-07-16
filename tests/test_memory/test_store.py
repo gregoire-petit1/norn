@@ -124,6 +124,35 @@ class TestDailyLogs:
         assert dates == ["2026-03-31", "2026-03-30", "2026-03-29"]
 
 
+class TestLessons:
+    def test_read_lessons_empty(self, store):
+        """No lessons file → empty string."""
+        store.ensure_dirs()
+        assert store.read_lessons() == ""
+
+    def test_append_and_read_lesson(self, store, memory_dir):
+        """Appending a lesson creates the file and can be read back."""
+        store.ensure_dirs()
+        store.append_lesson("Always verify edge cases.")
+        content = store.read_lessons()
+        assert "Always verify edge cases." in content
+
+    def test_append_multiple_lessons(self, store, memory_dir):
+        """Multiple lessons are all present."""
+        store.ensure_dirs()
+        store.append_lesson("Lesson A.")
+        store.append_lesson("Lesson B.")
+        content = store.read_lessons()
+        assert "Lesson A." in content
+        assert "Lesson B." in content
+
+    def test_lessons_stored_in_topics_dir(self, store, memory_dir):
+        """lessons.md lives in the topics directory."""
+        store.ensure_dirs()
+        store.append_lesson("x")
+        assert (memory_dir / "topics" / "lessons.md").exists()
+
+
 class TestMemorySize:
     def test_memory_line_count(self, store):
         """Count lines in MEMORY.md."""
