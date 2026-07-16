@@ -6,13 +6,14 @@ from norn.core.prompts import AGENT_SYSTEM_PROMPT, SELF_VERIFY_PROMPT
 def test_agent_system_prompt_is_compact():
     """System prompt should stay bounded (~1500 chars).
 
-    Cap raised from 1200 → 1500 for two KIRA-informed guidance blocks tied to
-    observed terminal-bench failures: deliverable env-robustness (openssl task
-    passed under python3 but the grader's `python` lacked the dep) and the "no
+    Cap raised from 1200 → 1600 for two KIRA-informed guidance blocks tied to
+    observed terminal-bench failures: deliverable env-robustness (openssl task's
+    check script imported cryptography, present under the agent's python but not
+    the grader's — refined to "prefer stdlib/CLI over pip deps") and the "no
     eyes/ears → use programmatic tools for media" rule (chess-from-image,
     gcode decode). The prompt is prompt-cached, so the per-turn cost is marginal.
     """
-    assert len(AGENT_SYSTEM_PROMPT) < 1500
+    assert len(AGENT_SYSTEM_PROMPT) < 1600
     assert len(AGENT_SYSTEM_PROMPT) > 50  # not empty
 
 

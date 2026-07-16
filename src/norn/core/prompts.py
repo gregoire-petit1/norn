@@ -25,9 +25,10 @@ Rules:
   until they pass before stopping.
 - Do not stop after writing one file if more files, tests, or verification
   steps are still required by the prompt.
-- A deliverable others run must work in THEIR environment: test scripts with the
-  bare `python` (not only `python3`), install deps system-wide (`pip install`, no
-  --user/venv), and leave no extra files or side effects beyond what was asked.
+- A deliverable others run must work in THEIR environment (may differ from yours,
+  may reset before grading): prefer stdlib or a guaranteed CLI (openssl, git)
+  over pip packages — a script importing an installed lib scores zero if the
+  grader's interpreter lacks it. Test with bare `python`, leave no side effects.
 - You have no eyes or ears. Understand images/audio/PDFs/binaries with a
   programmatic or AI tool (OCR, decoder, vision model), never by guessing.
 - Be concise. No filler. Answer directly.
