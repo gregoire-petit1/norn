@@ -53,6 +53,9 @@ class FlagsConfig(BaseModel):
     web_search: bool = False
     mcp: bool = False
     bench: bool = False
+    # image_read multimodal tool. Off by default (needs a vision-capable model
+    # and adds sub-call cost); benchmark/headless callers enable it.
+    vision_tools: bool = False
 
 
 class JudgeConfig(BaseModel):

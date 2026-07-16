@@ -76,7 +76,26 @@ ModelOption = Annotated[
 ]
 
 
-def _build_registry(flag_registry: FeatureFlagRegistry | None = None) -> ToolRegistry:
+def _resolve_vision_model(config: NornConfig) -> tuple[str, str | None]:
+    """Resolve the litellm model id (+api_base) for the image_read vision sub-call.
+
+    Uses the router's ``standard`` tier when routing is on (that's the model the
+    bench runs against), else the legacy ``config.llm`` block.
+    """
+    from norn.core.router import prefixed_model_id
+
+    if config.router.enabled and config.router.tiers:
+        tier = config.router.tiers.get("standard") or next(iter(config.router.tiers.values()))
+        return prefixed_model_id(tier.provider, tier.model), tier.api_base
+    return prefixed_model_id(config.llm.provider, config.llm.model), config.llm.api_base
+
+
+def _build_registry(
+    flag_registry: FeatureFlagRegistry | None = None,
+    *,
+    vision_model: str | None = None,
+    vision_api_base: str | None = None,
+) -> ToolRegistry:
     """Build the default tool registry."""
     registry = ToolRegistry(flag_registry=flag_registry)
     registry.register(BashTool())
@@ -94,6 +113,14 @@ def _build_registry(flag_registry: FeatureFlagRegistry | None = None) -> ToolReg
     # Web tools (gated behind web_search feature flag)
     registry.register(WebFetchTool(), feature_flag="web_search")
     registry.register(WebSearchTool(), feature_flag="web_search")
+    # Vision tool (gated behind vision_tools feature flag)
+    if vision_model:
+        from norn.tools.vision.image_read import ImageReadTool
+
+        registry.register(
+            ImageReadTool(model=vision_model, api_base=vision_api_base),
+            feature_flag="vision_tools",
+        )
     return registry
 
 
@@ -162,6 +189,7 @@ def _build_flag_registry(config: NornConfig) -> FeatureFlagRegistry:
             "ml_tools": FeatureFlag("ml_tools", True, "MLOps-specific tools"),
             "web_search": FeatureFlag("web_search", False, "Web search and fetch"),
             "mcp": FeatureFlag("mcp", False, "MCP server tools"),
+            "vision_tools": FeatureFlag("vision_tools", False, "image_read multimodal tool"),
         }
     )
     registry.apply_config(
@@ -171,6 +199,7 @@ def _build_flag_registry(config: NornConfig) -> FeatureFlagRegistry:
             "ml_tools": config.flags.ml_tools,
             "web_search": config.flags.web_search,
             "mcp": config.flags.mcp,
+            "vision_tools": config.flags.vision_tools,
         }
     )
     return registry
@@ -289,7 +318,10 @@ def chat(model: ModelOption = None, verbose: VerboseOption = False) -> None:
 
     flag_registry = _build_flag_registry(config)
     provider = _build_provider(config, model_override=model)
-    registry = _build_registry(flag_registry)
+    _vision_model, _vision_api_base = _resolve_vision_model(config)
+    registry = _build_registry(
+        flag_registry, vision_model=_vision_model, vision_api_base=_vision_api_base
+    )
     # Load MCP adapters and inject into registry
     for adapter in _load_mcp_adapters(config, flag_registry):
         with contextlib.suppress(ValueError):
@@ -405,7 +437,10 @@ def run(
 
     flag_registry = _build_flag_registry(config)
     provider = _build_provider(config, model_override=model)
-    registry = _build_registry(flag_registry)
+    _vision_model, _vision_api_base = _resolve_vision_model(config)
+    registry = _build_registry(
+        flag_registry, vision_model=_vision_model, vision_api_base=_vision_api_base
+    )
     # Load MCP adapters and inject into registry
     for adapter in _load_mcp_adapters(config, flag_registry):
         with contextlib.suppress(ValueError):
@@ -506,7 +541,10 @@ def coordinate(
 
     provider = _build_provider(config, model_override=model)
     flag_registry = _build_flag_registry(config)
-    registry = _build_registry(flag_registry)
+    _vision_model, _vision_api_base = _resolve_vision_model(config)
+    registry = _build_registry(
+        flag_registry, vision_model=_vision_model, vision_api_base=_vision_api_base
+    )
     # Load MCP adapters and inject into registry
     for adapter in _load_mcp_adapters(config, flag_registry):
         with contextlib.suppress(ValueError):
@@ -555,7 +593,10 @@ def tools(verbose: VerboseOption = False) -> None:
     config.apply_env_overrides()
     _bootstrap_logging(config, verbose=verbose)
     flag_registry = _build_flag_registry(config)
-    registry = _build_registry(flag_registry)
+    _vision_model, _vision_api_base = _resolve_vision_model(config)
+    registry = _build_registry(
+        flag_registry, vision_model=_vision_model, vision_api_base=_vision_api_base
+    )
     # Load MCP adapters and inject into registry
     for adapter in _load_mcp_adapters(config, flag_registry):
         with contextlib.suppress(ValueError):

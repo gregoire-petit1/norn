@@ -452,3 +452,28 @@ def test_router_warns_on_unknown_tier_name(caplog):
     assert Tier.FAST in router._providers
     assert len(router._providers) == 1
     assert any("fastt" in record.message for record in caplog.records)
+
+
+# --------------------------------------------------------------------------- #
+# prefixed_model_id helper (single source of truth for litellm prefixing)
+# --------------------------------------------------------------------------- #
+
+from norn.core.router import prefixed_model_id
+
+
+class TestPrefixedModelId:
+    def test_github_copilot(self):
+        assert prefixed_model_id("github_copilot", "claude-sonnet-4.5") == "github_copilot/claude-sonnet-4.5"
+
+    def test_ollama(self):
+        assert prefixed_model_id("ollama", "qwen2.5-coder:14b") == "ollama/qwen2.5-coder:14b"
+
+    def test_openrouter(self):
+        assert prefixed_model_id("openrouter", "x/y") == "openrouter/x/y"
+
+    def test_groq(self):
+        assert prefixed_model_id("groq", "llama3") == "groq/llama3"
+
+    def test_unknown_provider_passes_through(self):
+        # openai / already-prefixed ids are returned unchanged
+        assert prefixed_model_id("openai", "gpt-4o") == "gpt-4o"

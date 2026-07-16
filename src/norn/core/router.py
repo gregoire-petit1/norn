@@ -181,6 +181,18 @@ def _is_rate_limit_error(exc: Exception) -> bool:
     return any(signal in msg for signal in _RATE_LIMIT_SIGNALS)
 
 
+def prefixed_model_id(provider: str, model: str) -> str:
+    """Apply the LiteLLM ``<provider>/<model>`` prefix convention.
+
+    Single source of truth for the prefixing rule, reused by
+    :func:`build_litellm_provider` and by callers that need the litellm model id
+    without building a provider (e.g. the vision sub-call in image_read).
+    """
+    if provider in ("ollama", "openrouter", "groq", "github_copilot"):
+        return f"{provider}/{model}"
+    return model
+
+
 def build_litellm_provider(
     provider: str,
     model: str,
@@ -196,15 +208,7 @@ def build_litellm_provider(
     Used both internally by `RouterProvider` (to instantiate per-tier providers) and
     by the CLI's legacy single-provider path, to keep the prefixing rule in one place.
     """
-    prefixed_model = model
-    if provider == "ollama":
-        prefixed_model = f"ollama/{model}"
-    elif provider == "openrouter":
-        prefixed_model = f"openrouter/{model}"
-    elif provider == "groq":
-        prefixed_model = f"groq/{model}"
-    elif provider == "github_copilot":
-        prefixed_model = f"github_copilot/{model}"
+    prefixed_model = prefixed_model_id(provider, model)
     return LiteLLMProvider(
         model=prefixed_model,
         api_base=api_base,

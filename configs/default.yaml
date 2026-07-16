@@ -33,6 +33,7 @@ flags:
   web_search: false     # Phase 6: DuckDuckGo search + web fetch
   mcp: false            # Phase 6: MCP server tools
   bench: false           # Phase 10: Benchmark harness
+  vision_tools: false    # image_read multimodal tool (needs vision-capable model)
 
 mcp:
   enabled: false        # Phase 6: MCP server integration

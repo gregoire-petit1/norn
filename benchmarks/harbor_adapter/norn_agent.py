@@ -49,6 +49,10 @@ _CONFIG_OVERRIDES = {
     # auto_verify adds up to 2 self-check turns so the agent confirms its
     # output file exists / tests pass before the container tears down.
     "agent": {"max_tool_rounds": 50, "auto_verify": True, "auto_verify_max_rounds": 2},
+    # image_read multimodal: terminal-bench has visual tasks (chess from a
+    # rendered board, plots, scanned docs) a text-only agent can't solve.
+    # claude-sonnet-4.5 (router tiers below) is vision-capable.
+    "flags": {"vision_tools": True},
     "router": {
         "enabled": True,
         "domain_routing": True,
