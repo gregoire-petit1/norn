@@ -83,6 +83,31 @@ def render_markdown_report(report: RunReport) -> str:
         lines.append(f"| {r.task_id} | {status} | {r.latency_ms} | {r.eval_returncode} | {judge} |")
 
     lines.append("")
+    metrics_section = render_metrics_section(report)
+    if metrics_section:
+        lines.append(metrics_section)
+    return "\n".join(lines)
+
+
+def render_metrics_section(report: RunReport) -> str:
+    """Render a per-task metrics table (SOTA v2, workstream B).
+
+    Returns "" when no result carries metrics, so reports produced by
+    runs without session-metrics extraction are unchanged.
+    """
+    with_metrics = [r for r in report.results if r.tool_counts or r.llm_calls]
+    if not with_metrics:
+        return ""
+    lines = [
+        "## Metrics",
+        "",
+        "| Task ID | LLM calls | Tool calls |",
+        "|---------|-----------|------------|",
+    ]
+    for r in with_metrics:
+        tools = ", ".join(f"{name}×{n}" for name, n in sorted(r.tool_counts.items())) or "-"
+        lines.append(f"| {r.task_id} | {r.llm_calls} | {tools} |")
+    lines.append("")
     return "\n".join(lines)
 
 

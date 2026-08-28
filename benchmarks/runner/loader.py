@@ -14,6 +14,7 @@ def load_tasks(
     tasks_dir: Path,
     category: str | None = None,
     task_id: str | None = None,
+    difficulty: str | None = None,
 ) -> list[TaskDef]:
     """Load all TaskDefs from tasks_dir/**/task.yaml.
 
@@ -21,6 +22,7 @@ def load_tasks(
         tasks_dir: Root directory containing task subdirectories.
         category: Optional filter by category.
         task_id: Optional filter by specific task ID.
+        difficulty: Optional filter by metadata.difficulty (e.g. "easy").
 
     Returns:
         List of TaskDef, sorted by id. Deprecated tasks are excluded.
@@ -48,6 +50,8 @@ def load_tasks(
         if category and td.category != category:
             continue
         if task_id and td.id != task_id:
+            continue
+        if difficulty and td.metadata.difficulty != difficulty:
             continue
 
         tasks.append(td)

@@ -173,13 +173,173 @@ def bench_diff(
     )
 
 
+def _load_bench_config():
+    """Load NornConfig with env overrides applied (bench section drives runs)."""
+    from norn.core.config import NornConfig
+
+    cfg = NornConfig.load()
+    cfg.apply_env_overrides()
+    return cfg
+
+
+def _build_config_overrides(cfg, model: str) -> dict:
+    """Build NORN_CONFIG_OVERRIDES for bench subprocesses from BenchConfig.
+
+    `--model` accepts "provider/model" or a bare model name and actually
+    drives the router tiers (it previously wrote a dead `llm` override).
+    """
+    bench_provider = cfg.bench.provider
+    bench_model = cfg.bench.model
+    if model:
+        if "/" in model:
+            bench_provider, _, bench_model = model.partition("/")
+        else:
+            bench_model = model
+    tier = {"provider": bench_provider, "model": bench_model, "api_base": None}
+    # 'yolo' mode: all tools auto-approved (subprocess has no TTY for prompts).
+    return {
+        "permissions": {"mode": "yolo"},
+        "agent": {"max_tool_rounds": cfg.bench.max_tool_rounds},
+        "router": {
+            "enabled": True,
+            "domain_routing": True,
+            "tiers": {"fast": tier, "standard": tier, "powerful": tier},
+        },
+    }
+
+
+def _collect_session_metrics(cfg, result) -> None:
+    """Best-effort: attach tool/LLM counts from the task's JSONL session log.
+
+    The `norn run` subprocess persists its session id to
+    ~/.norn/state/last_session; we match its events in today's log file.
+    Empty under --docker (logs live inside the container) — acceptable.
+    """
+    from datetime import datetime, timezone
+
+    from benchmarks.runner.metrics import count_by_tool, count_events, load_session_events
+
+    try:
+        sid = (Path.home() / ".norn" / "state" / "last_session").read_text().strip()
+        log_dir = Path(cfg.logging.file_dir).expanduser()
+        log_path = log_dir / f"{datetime.now(timezone.utc).strftime('%Y-%m-%d')}.jsonl"
+        events = load_session_events(log_path, sid)
+        result.tool_counts = count_by_tool(events)
+        result.llm_calls = count_events(events, "llm.complete")
+    except Exception:
+        pass
+
+
+def _run_tasks(
+    tasks: list,
+    *,
+    config_overrides: dict,
+    meta,
+    delay_seconds: float,
+    n_runs: int = 1,
+    docker: bool = False,
+    image: str = "",
+    post_result=None,
+):
+    """Run tasks sequentially and return a RunReport.
+
+    Shared by `bench run` and `bench guard`. ``post_result(task, result)``
+    is an optional enrichment hook (judge scoring, session metrics).
+    """
+    import asyncio
+
+    from benchmarks.runner.evaluator import evaluate_task
+    from benchmarks.runner.executor import execute_task
+    from benchmarks.runner.models import RunReport
+    from benchmarks.runner.sandbox import cleanup_sandbox, create_sandbox
+
+    if docker:
+        from benchmarks.runner.docker_sandbox import execute_task_docker
+
+    results = []
+    first = True
+    for i, task in enumerate(tasks, 1):
+        runs = max(task.n_runs, n_runs)
+        for run_idx in range(runs):
+            # Brief pause between executions (provider rate-limit hygiene).
+            if not first:
+                import time as _time
+
+                _time.sleep(delay_seconds)
+            first = False
+            label = f"[{i}/{len(tasks)}] {task.id}"
+            if runs > 1:
+                label += f" (run {run_idx + 1}/{runs})"
+            console.print(f"{label}...", end=" ")
+            sandbox = create_sandbox(task)
+            try:
+                if docker:
+                    trace = asyncio.run(
+                        execute_task_docker(
+                            task,
+                            sandbox_dir=sandbox,
+                            config_overrides=config_overrides,
+                            image=image,
+                        )
+                    )
+                else:
+                    trace = asyncio.run(
+                        execute_task(task, sandbox_dir=sandbox, config_overrides=config_overrides)
+                    )
+                result = evaluate_task(task, trace, sandbox_dir=sandbox)
+                if post_result is not None:
+                    post_result(task, result)
+                results.append(result)
+
+                status = "[green]PASS[/green]" if result.success else "[red]FAIL[/red]"
+                console.print(f"{status} ({result.latency_ms}ms)")
+            except Exception as e:
+                console.print(f"[red]ERROR: {e}[/red]")
+            finally:
+                cleanup_sandbox(sandbox)
+
+    return RunReport(meta=meta, results=results)
+
+
+def _make_run_meta(model_label: str):
+    import subprocess
+    import uuid
+    from datetime import datetime, timezone
+
+    from benchmarks.runner.models import RunMeta
+
+    try:
+        git_sha = subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+    except Exception:
+        git_sha = "unknown"
+
+    return RunMeta(
+        run_id=f"{git_sha}-{uuid.uuid4().hex[:8]}",
+        model=model_label,
+        agent_version="0.1.0",
+        timestamp=datetime.now(timezone.utc),
+    )
+
+
 @bench_app.command("run")
 def bench_run(
     tasks_dir: TasksDirOption = "",
     results_dir: ResultsDirOption = "",
     category: str = typer.Option("", help="Filter by category"),
     task_id: str = typer.Option("", help="Run single task by ID"),
-    model: str = typer.Option("", help="Override LLM model"),
+    model: str = typer.Option("", help="Override bench model ('provider/model' or model name)"),
+    n_runs: int = typer.Option(0, "--n-runs", help="Runs per task (0 = bench.default_n_runs)"),
+    judge: bool = typer.Option(
+        False, "--judge", help="Score each task with LLM-as-judge (uses bench.judge config)"
+    ),
+    judge_model: str = typer.Option(
+        "", "--judge-model", help="Override judge model (provider/model)"
+    ),
     docker: bool = typer.Option(
         False, "--docker", help="Run each task in an isolated Docker container"
     ),
@@ -193,22 +353,17 @@ def bench_run(
     """Run benchmark tasks against Norn."""
     _ensure_benchmarks_importable()
     import asyncio
-    import subprocess
-    import uuid
-    from datetime import datetime, timezone
 
-    from benchmarks.runner.evaluator import evaluate_task
-    from benchmarks.runner.executor import execute_task
     from benchmarks.runner.loader import load_tasks
-    from benchmarks.runner.models import RunMeta, RunReport
     from benchmarks.runner.persistence import save_report
-    from benchmarks.runner.sandbox import cleanup_sandbox, create_sandbox
 
+    cfg = _load_bench_config()
+
+    image = ""
     if docker:
         from benchmarks.runner.docker_sandbox import (
             DEFAULT_IMAGE,
             build_image,
-            execute_task_docker,
             image_exists,
         )
 
@@ -227,83 +382,138 @@ def bench_run(
         console.print("[dim]No tasks to run.[/dim]")
         return
 
-    # Get git SHA
-    try:
-        git_sha = subprocess.run(
-            ["git", "rev-parse", "--short", "HEAD"],
-            capture_output=True,
-            text=True,
-            check=True,
-        ).stdout.strip()
-    except Exception:
-        git_sha = "unknown"
+    if cfg.bench.parallel_tasks > 1:
+        console.print(
+            "[yellow]bench.parallel_tasks > 1 is not supported yet; running sequentially.[/yellow]"
+        )
 
-    # Use 'yolo' mode: all tools auto-approved (subprocess has no TTY for prompts)
-    # Limit tool rounds to 20 — enough headroom for multi-file tasks (write
-    # impl + tests + run + iterate) while still capping echo loops.
-    config_overrides: dict = {
-        "permissions": {"mode": "yolo"},
-        "agent": {"max_tool_rounds": 20},
-        # GitHub Copilot Enterprise: high rate limits, no session cap.
-        # Groq/OpenRouter as fallbacks if Copilot ever rejects a request.
-        "router": {
-            "enabled": True,
-            "domain_routing": True,
-            "tiers": {
-                "fast": {"provider": "github_copilot", "model": "claude-sonnet-4.5", "api_base": None},
-                "standard": {"provider": "github_copilot", "model": "claude-sonnet-4.5", "api_base": None},
-                "powerful": {"provider": "github_copilot", "model": "claude-sonnet-4.5", "api_base": None},
-            },
-        },
-    }
-    if model:
-        config_overrides["llm"] = {"model": model}
+    config_overrides = _build_config_overrides(cfg, model)
+    tier = config_overrides["router"]["tiers"]["fast"]
+    model_label = f"{tier['provider']}/{tier['model']}"
+    meta = _make_run_meta(model_label)
 
-    meta = RunMeta(
-        run_id=f"{git_sha}-{uuid.uuid4().hex[:8]}",
-        model=model or "default",
-        agent_version="0.1.0",
-        timestamp=datetime.now(timezone.utc),
+    # Judge: opt-in via --judge (never a surprise LLM bill). judge_task
+    # returns None on any failure, so the column degrades to '-'.
+    judge_llm = None
+    if judge:
+        from norn.core.router import build_litellm_provider
+
+        jm = judge_model or cfg.bench.judge.model
+        j_provider, _, j_model = jm.partition("/")
+        judge_llm = build_litellm_provider(j_provider, j_model, None)
+
+    def _post_result(task, result) -> None:
+        _collect_session_metrics(cfg, result)
+        if judge_llm is not None:
+            from benchmarks.runner.judge import judge_task
+
+            result.judge_score = asyncio.run(
+                judge_task(task, result.trace.stdout[-8000:], llm=judge_llm)
+            )
+
+    effective_n_runs = n_runs or cfg.bench.default_n_runs
+    console.print(f"[bold]Running {len(tasks)} benchmark tasks ({model_label})...[/bold]\n")
+    report = _run_tasks(
+        tasks,
+        config_overrides=config_overrides,
+        meta=meta,
+        delay_seconds=cfg.bench.inter_task_delay_seconds,
+        n_runs=effective_n_runs,
+        docker=docker,
+        image=image,
+        post_result=_post_result,
     )
 
-    results = []
-    console.print(f"[bold]Running {len(tasks)} benchmark tasks...[/bold]\n")
-
-    for i, task in enumerate(tasks, 1):
-        # Brief pause between tasks.
-        if i > 1:
-            import time as _time
-            _time.sleep(5)
-        console.print(f"[{i}/{len(tasks)}] {task.id}...", end=" ")
-        sandbox = create_sandbox(task)
-        try:
-            if docker:
-                trace = asyncio.run(
-                    execute_task_docker(
-                        task,
-                        sandbox_dir=sandbox,
-                        config_overrides=config_overrides,
-                        image=docker_image or DEFAULT_IMAGE,
-                    )
-                )
-            else:
-                trace = asyncio.run(
-                    execute_task(task, sandbox_dir=sandbox, config_overrides=config_overrides)
-                )
-            result = evaluate_task(task, trace, sandbox_dir=sandbox)
-            results.append(result)
-
-            status = "[green]PASS[/green]" if result.success else "[red]FAIL[/red]"
-            console.print(f"{status} ({result.latency_ms}ms)")
-        except Exception as e:
-            console.print(f"[red]ERROR: {e}[/red]")
-        finally:
-            cleanup_sandbox(sandbox)
-
-    report = RunReport(meta=meta, results=results)
     filepath = save_report(report, results_dir=rd)
     console.print(
         f"\n[bold]Results:[/bold] {report.passed}/{report.total} passed "
         f"({report.pass_rate * 100:.0f}%)"
     )
+    judged = [r for r in report.results if r.judge_score]
+    if judged:
+        avg = sum(r.judge_score.average() for r in judged) / len(judged)
+        console.print(f"[bold]Judge avg:[/bold] {avg:.1f}/10 over {len(judged)} tasks")
     console.print(f"[dim]Saved to {filepath}[/dim]")
+
+
+@bench_app.command("guard")
+def bench_guard(
+    tasks_dir: TasksDirOption = "",
+    results_dir: ResultsDirOption = "",
+    max_tasks: int = typer.Option(5, help="Max easy tasks to run"),
+    update_baseline: bool = typer.Option(
+        False, "--update-baseline", help="Record this run as the new guard baseline"
+    ),
+    revert_lessons: bool = typer.Option(
+        False,
+        "--revert-lessons",
+        help="Restore lessons.md from its backup if a regression is detected",
+    ),
+) -> None:
+    """W3.3 self-improvement safety net: mini-bench vs a stored baseline.
+
+    Runs up to `max_tasks` easy tasks and compares against the last guard
+    baseline (results/guard/). Exit code 1 on regression (CI-friendly).
+    Run after `/reflect` persists a new lesson; `--revert-lessons` undoes
+    the lesson when it regresses.
+    """
+    _ensure_benchmarks_importable()
+    from benchmarks.runner.loader import load_tasks
+    from benchmarks.runner.persistence import list_reports, load_report, save_report
+    from benchmarks.runner.reporter import detect_regressions
+
+    cfg = _load_bench_config()
+    td = Path(tasks_dir) if tasks_dir else _default_tasks_dir()
+    rd = (Path(results_dir) if results_dir else _default_results_dir()) / "guard"
+
+    tasks = load_tasks(tasks_dir=td, difficulty="easy")[:max_tasks]
+    if not tasks:
+        console.print("[dim]No easy tasks found for the guard suite.[/dim]")
+        return
+
+    config_overrides = _build_config_overrides(cfg, "")
+    tier = config_overrides["router"]["tiers"]["fast"]
+    meta = _make_run_meta(f"{tier['provider']}/{tier['model']}")
+
+    console.print(f"[bold]Guard: running {len(tasks)} easy tasks...[/bold]\n")
+    report = _run_tasks(
+        tasks,
+        config_overrides=config_overrides,
+        meta=meta,
+        delay_seconds=cfg.bench.inter_task_delay_seconds,
+    )
+
+    baselines = list_reports(results_dir=rd)
+    if update_baseline or not baselines:
+        filepath = save_report(report, results_dir=rd)
+        console.print(
+            f"\n[green]Guard baseline recorded:[/green] {report.passed}/{report.total} "
+            f"([dim]{filepath}[/dim])"
+        )
+        return
+
+    baseline = load_report(baselines[-1])
+    regressions = detect_regressions(baseline, report)
+    delta = report.pass_rate - baseline.pass_rate
+    color = "green" if delta >= 0 else "red"
+    console.print(
+        f"\nPass rate: {baseline.pass_rate * 100:.0f}% → "
+        f"{report.pass_rate * 100:.0f}% ([{color}]{delta * 100:+.0f}%[/{color}])"
+    )
+
+    if not regressions:
+        console.print("[green]No regressions — lessons are safe.[/green]")
+        return
+
+    console.print(f"[red]Regressions ({len(regressions)}):[/red]")
+    for tid in regressions:
+        console.print(f"  [red]- {tid}[/red]")
+    if revert_lessons:
+        from norn.cli.main import _build_memory_store
+
+        store = _build_memory_store(cfg)
+        if store is not None and store.restore_lessons_backup():
+            console.print("[yellow]lessons.md restored from backup.[/yellow]")
+        else:
+            console.print("[yellow]No lessons backup to restore.[/yellow]")
+    raise typer.Exit(1)

@@ -52,7 +52,10 @@ class FlagsConfig(BaseModel):
     ml_tools: bool = False
     web_search: bool = False
     mcp: bool = False
-    bench: bool = False
+    # CodeRAG hybrid retrieval tools (Phase 4). Off by default: first call
+    # builds the index (latency), and vector search needs the [rag] extra
+    # (graceful BM25-only degradation without it).
+    coderag: bool = False
     # image_read multimodal tool. Off by default (needs a vision-capable model
     # and adds sub-call cost); benchmark/headless callers enable it.
     vision_tools: bool = False
@@ -72,6 +75,12 @@ class BenchConfig(BaseModel):
     default_timeout_seconds: int = 300
     judge: JudgeConfig = JudgeConfig()
     parallel_tasks: int = 1
+    # SOTA v2 (workstream B): bench agent model, previously hardcoded in
+    # cli/bench.py. Defaults preserve the prior behaviour.
+    provider: str = "github_copilot"
+    model: str = "claude-sonnet-4.5"
+    max_tool_rounds: int = 20
+    inter_task_delay_seconds: float = 5.0
 
 
 class MemorySystemConfig(BaseModel):

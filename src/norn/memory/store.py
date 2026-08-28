@@ -112,6 +112,32 @@ class MemoryStore:
         with open(self._lessons_file, "a", encoding="utf-8") as f:
             f.write(lesson.rstrip() + "\n\n")
 
+    def backup_lessons(self) -> Path | None:
+        """Copy lessons.md → lessons.md.bak (pre-change safety net, W3.3).
+
+        Returns the backup path, or None when there is no lessons file yet
+        (in which case the backup is an empty file, so a later restore
+        reverts to the pre-first-lesson state).
+        """
+        bak = self._lessons_file.with_suffix(".md.bak")
+        if self._lessons_file.exists():
+            bak.write_text(self._lessons_file.read_text(encoding="utf-8"), encoding="utf-8")
+            return bak
+        bak.write_text("", encoding="utf-8")
+        return None
+
+    def restore_lessons_backup(self) -> bool:
+        """Restore lessons.md from lessons.md.bak. Returns True if restored."""
+        bak = self._lessons_file.with_suffix(".md.bak")
+        if not bak.exists():
+            return False
+        content = bak.read_text(encoding="utf-8")
+        if content:
+            self._lessons_file.write_text(content, encoding="utf-8")
+        elif self._lessons_file.exists():
+            self._lessons_file.unlink()
+        return True
+
     # --- Daily logs ---
 
     def append_daily(self, date_str: str, entry: str) -> None:

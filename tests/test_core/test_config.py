@@ -28,11 +28,6 @@ def test_bench_config_defaults():
     assert cfg.judge.model == "anthropic/claude-sonnet-4"
 
 
-def test_bench_flag_default_false():
-    cfg = NornConfig()
-    assert cfg.flags.bench is False
-
-
 def test_config_from_yaml(tmp_path):
     config_file = tmp_path / "config.yaml"
     config_file.write_text(

@@ -2,8 +2,34 @@
 
 from __future__ import annotations
 
+import json
 from collections import Counter
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any, Callable
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+
+def load_session_events(log_path: Path, session_id: str) -> list[dict[str, Any]]:
+    """Parse a JSONL log file, returning events whose session_id matches.
+
+    Malformed lines are skipped; a missing file returns []. Best-effort by
+    design — bench metrics must never fail a run.
+    """
+    if not log_path.exists():
+        return []
+    events: list[dict[str, Any]] = []
+    for line in log_path.read_text(encoding="utf-8", errors="replace").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            event = json.loads(line)
+        except (json.JSONDecodeError, ValueError):
+            continue
+        if isinstance(event, dict) and event.get("session_id") == session_id:
+            events.append(event)
+    return events
 
 
 def count_events(events: list[dict[str, Any]], event_name: str) -> int:

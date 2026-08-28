@@ -32,7 +32,7 @@ flags:
   ml_tools: true        # Phase 5: PyTorch/Polars/sklearn tools
   web_search: false     # Phase 6: DuckDuckGo search + web fetch
   mcp: false            # Phase 6: MCP server tools
-  bench: false           # Phase 10: Benchmark harness
+  coderag: false         # Phase 4: CodeRAG hybrid retrieval (vector search needs [rag] extra)
   vision_tools: false    # image_read multimodal tool (needs vision-capable model)
 
 mcp:
@@ -129,6 +129,11 @@ bench:
   default_n_runs: 1
   default_timeout_seconds: 300
   parallel_tasks: 1
+  # SOTA v2: bench agent model (was hardcoded in the CLI).
+  provider: "github_copilot"
+  model: "claude-sonnet-4.5"
+  max_tool_rounds: 20
+  inter_task_delay_seconds: 5.0
   judge:
     enabled: true
     model: "anthropic/claude-sonnet-4"

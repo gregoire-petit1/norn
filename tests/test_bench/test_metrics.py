@@ -67,3 +67,23 @@ def test_count_events_by_no_match():
 def test_count_events_empty_list():
     assert count_events([], "llm.complete") == 0
     assert sum_field([], "total_tokens") == 0
+
+
+def test_load_session_events_filters_and_skips_malformed(tmp_path):
+    from pathlib import Path
+
+    from benchmarks.runner.metrics import load_session_events
+
+    log = tmp_path / "log.jsonl"
+    log.write_text(
+        '{"event": "tool.call", "session_id": "s1", "tool_name": "bash"}\n'
+        "not json at all\n"
+        '{"event": "llm.complete", "session_id": "s2"}\n'
+        '{"event": "llm.complete", "session_id": "s1"}\n'
+        "\n"
+    )
+    events = load_session_events(log, "s1")
+    assert len(events) == 2
+    assert {e["event"] for e in events} == {"tool.call", "llm.complete"}
+    # Missing file → []
+    assert load_session_events(Path(tmp_path / "missing.jsonl"), "s1") == []

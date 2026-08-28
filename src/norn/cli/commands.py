@@ -368,8 +368,14 @@ def _register_ramp_commands(reg: SlashCommandRegistry) -> None:
                 ts = datetime.now(timezone.utc).strftime("%Y-%m-%d")
                 lesson = f"## Reflection [{ts}]\n\n{reflection.strip()}"
                 with contextlib.suppress(Exception):
+                    # W3.3: snapshot pre-lesson state so `norn bench guard
+                    # --revert-lessons` can undo a lesson that regresses.
+                    store.backup_lessons()
                     store.append_lesson(lesson)
                 ctx.console.print("[green]Lessons saved.[/green]")
+                ctx.console.print(
+                    "[dim]Run 'norn bench guard' to verify no regression from the new lesson.[/dim]"
+                )
 
 
 def build_default_registry() -> SlashCommandRegistry:

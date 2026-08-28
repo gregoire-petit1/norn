@@ -111,3 +111,23 @@ def test_detect_regressions_new_task_not_regression():
         ]
     )
     assert detect_regressions(baseline, current) == []
+
+
+def test_metrics_section_rendered_only_with_metrics():
+    from benchmarks.runner.models import RunReport, TaskResult
+    from benchmarks.runner.reporter import render_markdown_report, render_metrics_section
+
+    bare = RunReport(results=[TaskResult(task_id="t1", success=True)])
+    assert render_metrics_section(bare) == ""
+    assert "## Metrics" not in render_markdown_report(bare)
+
+    with_metrics = RunReport(
+        results=[
+            TaskResult(task_id="t1", success=True, tool_counts={"bash": 3, "file_read": 1}, llm_calls=4)
+        ]
+    )
+    section = render_metrics_section(with_metrics)
+    assert "## Metrics" in section
+    assert "bash×3" in section
+    assert "| t1 | 4 |" in section
+    assert "## Metrics" in render_markdown_report(with_metrics)

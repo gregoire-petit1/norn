@@ -56,6 +56,9 @@ from norn.tools.ml.model_card import ModelCardTool
 from norn.tools.ml.model_eval import ModelEvalTool
 from norn.tools.ml.model_inspector import ModelInspectorTool
 from norn.tools.ml.tensor_inspector import TensorInspectorTool
+from norn.tools.rag.coderag_context import CodeRAGContextTool
+from norn.tools.rag.coderag_explain import CodeRAGExplainTool
+from norn.tools.rag.coderag_search import CodeRAGSearchTool
 from norn.tools.registry import ToolRegistry
 from norn.tools.web.web_fetch import WebFetchTool
 from norn.tools.web.web_search import WebSearchTool
@@ -113,6 +116,11 @@ def _build_registry(
     # Web tools (gated behind web_search feature flag)
     registry.register(WebFetchTool(), feature_flag="web_search")
     registry.register(WebSearchTool(), feature_flag="web_search")
+    # CodeRAG tools (gated behind coderag feature flag; norn.rag is imported
+    # lazily inside execute(), so registration itself is dependency-free)
+    registry.register(CodeRAGSearchTool(), feature_flag="coderag")
+    registry.register(CodeRAGContextTool(), feature_flag="coderag")
+    registry.register(CodeRAGExplainTool(), feature_flag="coderag")
     # Vision tool (gated behind vision_tools feature flag)
     if vision_model:
         from norn.tools.vision.image_read import ImageReadTool
@@ -213,6 +221,7 @@ def _build_flag_registry(config: NornConfig) -> FeatureFlagRegistry:
             "ml_tools": FeatureFlag("ml_tools", True, "MLOps-specific tools"),
             "web_search": FeatureFlag("web_search", False, "Web search and fetch"),
             "mcp": FeatureFlag("mcp", False, "MCP server tools"),
+            "coderag": FeatureFlag("coderag", False, "CodeRAG hybrid retrieval tools"),
             "vision_tools": FeatureFlag("vision_tools", False, "image_read multimodal tool"),
         }
     )
@@ -223,6 +232,7 @@ def _build_flag_registry(config: NornConfig) -> FeatureFlagRegistry:
             "ml_tools": config.flags.ml_tools,
             "web_search": config.flags.web_search,
             "mcp": config.flags.mcp,
+            "coderag": config.flags.coderag,
             "vision_tools": config.flags.vision_tools,
         }
     )

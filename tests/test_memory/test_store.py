@@ -166,3 +166,30 @@ class TestMemorySize:
         content = "hello world"
         store.write_memory(content)
         assert store.memory_byte_size() == len(content.encode())
+
+
+class TestLessonsBackup:
+    """W3.3 safety net: backup/restore around lesson persistence."""
+
+    def test_backup_and_restore_round_trip(self, store):
+        store.ensure_dirs()
+        store.append_lesson("## Lesson 1\n\ngood lesson")
+        store.backup_lessons()
+        store.append_lesson("## Lesson 2\n\nbad lesson")
+        assert "bad lesson" in store.read_lessons()
+
+        assert store.restore_lessons_backup() is True
+        content = store.read_lessons()
+        assert "good lesson" in content
+        assert "bad lesson" not in content
+
+    def test_backup_before_first_lesson_restores_to_empty(self, store):
+        store.ensure_dirs()
+        store.backup_lessons()  # no lessons file yet
+        store.append_lesson("## Lesson 1\n\nfirst")
+        assert store.restore_lessons_backup() is True
+        assert store.read_lessons() == ""
+
+    def test_restore_without_backup_returns_false(self, store):
+        store.ensure_dirs()
+        assert store.restore_lessons_backup() is False

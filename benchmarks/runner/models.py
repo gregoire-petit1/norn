@@ -98,6 +98,10 @@ class TaskResult(BaseModel):
     eval_returncode: int = -1
     eval_stdout: str = ""
     error: str | None = None
+    # SOTA v2 (workstream B): per-task session metrics, extracted best-effort
+    # from the JSONL observability logs. Empty when unavailable (e.g. Docker).
+    tool_counts: dict[str, int] = Field(default_factory=dict)
+    llm_calls: int = 0
 
     @classmethod
     def timeout(cls, task: TaskDef, trace: ExecutionTrace) -> TaskResult:

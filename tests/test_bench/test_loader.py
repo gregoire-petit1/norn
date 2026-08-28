@@ -96,3 +96,18 @@ def test_load_tasks_sets_source_path(tmp_path):
     assert len(tasks) == 1
     assert tasks[0]._source_path is not None
     assert tasks[0]._source_path.name == "task.yaml"
+
+
+def test_load_tasks_filter_by_difficulty(tmp_path):
+    """difficulty filter matches metadata.difficulty (SOTA v2, guard suite)."""
+    import yaml as _yaml
+
+    easy_dir = _write_task(tmp_path, "code-gen", "001-easy")
+    _write_task(tmp_path, "code-gen", "002-hard")
+    yaml_path = easy_dir / "task.yaml"
+    data = _yaml.safe_load(yaml_path.read_text())
+    data["metadata"] = {"difficulty": "easy"}
+    yaml_path.write_text(_yaml.dump(data))
+
+    tasks = load_tasks(tasks_dir=tmp_path, difficulty="easy")
+    assert [t.id for t in tasks] == ["code-gen-001-easy"]
