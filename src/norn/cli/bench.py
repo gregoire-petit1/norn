@@ -215,14 +215,14 @@ def _collect_session_metrics(cfg, result) -> None:
     ~/.norn/state/last_session; we match its events in today's log file.
     Empty under --docker (logs live inside the container) — acceptable.
     """
-    from datetime import datetime, timezone
+    from datetime import UTC, datetime
 
     from benchmarks.runner.metrics import count_by_tool, count_events, load_session_events
 
     try:
         sid = (Path.home() / ".norn" / "state" / "last_session").read_text().strip()
         log_dir = Path(cfg.logging.file_dir).expanduser()
-        log_path = log_dir / f"{datetime.now(timezone.utc).strftime('%Y-%m-%d')}.jsonl"
+        log_path = log_dir / f"{datetime.now(UTC).strftime('%Y-%m-%d')}.jsonl"
         events = load_session_events(log_path, sid)
         result.tool_counts = count_by_tool(events)
         result.llm_calls = count_events(events, "llm.complete")
@@ -304,7 +304,7 @@ def _run_tasks(
 def _make_run_meta(model_label: str):
     import subprocess
     import uuid
-    from datetime import datetime, timezone
+    from datetime import UTC, datetime
 
     from benchmarks.runner.models import RunMeta
 
@@ -322,7 +322,7 @@ def _make_run_meta(model_label: str):
         run_id=f"{git_sha}-{uuid.uuid4().hex[:8]}",
         model=model_label,
         agent_version="0.1.0",
-        timestamp=datetime.now(timezone.utc),
+        timestamp=datetime.now(UTC),
     )
 
 

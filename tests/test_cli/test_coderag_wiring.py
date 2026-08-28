@@ -13,7 +13,7 @@ def test_coderag_tools_registered_when_flag_on():
     cfg.flags.coderag = True
     fr = _build_flag_registry(cfg)
     reg = _build_registry(fr)
-    assert _CODERAG_TOOLS <= {t.name for t in reg.list_tools()}
+    assert _CODERAG_TOOLS.issubset({t.name for t in reg.list_tools()})
 
 
 def test_coderag_tools_hidden_when_flag_off():

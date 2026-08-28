@@ -123,7 +123,9 @@ def test_metrics_section_rendered_only_with_metrics():
 
     with_metrics = RunReport(
         results=[
-            TaskResult(task_id="t1", success=True, tool_counts={"bash": 3, "file_read": 1}, llm_calls=4)
+            TaskResult(
+                task_id="t1", success=True, tool_counts={"bash": 3, "file_read": 1}, llm_calls=4
+            )
         ]
     )
     section = render_metrics_section(with_metrics)
