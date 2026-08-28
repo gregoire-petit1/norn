@@ -6,7 +6,7 @@
 multi-agent orchestration, and structured observability. Built in Python 3.11+
 with a focus on MLOps-friendly development workflows.
 
-**Status:** Active development (Phase 9 — observability & quality). Pre-1.0,
+**Status:** Active development (SOTA v2 — reliability, security, cost). Pre-1.0,
 APIs and config schema may evolve.
 
 **License:** MIT
@@ -173,7 +173,7 @@ Highlights:
 ### Tests
 
 ```bash
-uv run pytest                # full suite (~507 tests as of Phase 9 v1)
+uv run pytest                # full suite (~970 tests)
 uv run pytest -k logger      # filter
 uv run pytest --co           # collect only
 ```
@@ -197,12 +197,15 @@ uv run ruff check . --fix    # autofix safe issues
 
 ### Roadmap
 
-Tracked in `docs/plans/`. Active workstream: Phase 9 v2
-(`docs/plans/2026-04-22-norn-phase9-v2-design.md`) — robustness & quality
-(CI, coverage gaps, `ToolErrorType` taxonomy, prompt caching).
+Tracked in `docs/plans/`. Active plan: SOTA v2
+(`docs/plans/2026-08-28-norn-sota-v2.md`) — wave 1 shipped: append-only
+thread invariant + LLM record/replay tests, fail-closed bash sandbox
+(seatbelt), byte-stable prompt + cache metrics, CodeRAG/judge/metrics wiring,
+`norn bench guard` self-improvement safety net.
 
-Future candidates: `obsidian_rag` tool (Phase 10), internal benchmark
-(Phase 11), watch mode, repo-map / tree-sitter integration.
+Backlog (see the SOTA v2 doc): AXI-style tool-output ergonomics, sliding
+window / dynamic tools by default, Linux sandbox (bubblewrap/Landlock),
+mypy in CI, Viktor code-writing paradigm (deferred).
 
 ---
 
@@ -220,4 +223,4 @@ PR:
 
 ## License
 
-MIT — see `LICENSE` (TODO: add file).
+MIT — see `LICENSE`.
