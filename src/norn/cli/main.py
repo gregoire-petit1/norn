@@ -98,10 +98,27 @@ def _build_registry(
     *,
     vision_model: str | None = None,
     vision_api_base: str | None = None,
+    config: NornConfig | None = None,
 ) -> ToolRegistry:
     """Build the default tool registry."""
     registry = ToolRegistry(flag_registry=flag_registry)
-    registry.register(BashTool())
+    # SOTA v2 (workstream C): fail-closed bash sandbox, resolved through the
+    # flag registry (env NORN_FLAG_SANDBOX > config.sandbox.enabled > off).
+    sandbox_enabled = flag_registry.is_enabled("sandbox") if flag_registry else False
+    sandbox_cfg = config.sandbox if config is not None else None
+    registry.register(
+        BashTool(
+            sandbox_enabled=sandbox_enabled,
+            default_policy=sandbox_cfg.default_policy if sandbox_cfg else "workspace-write",
+            allow_network=sandbox_cfg.allow_network if sandbox_cfg else False,
+            extra_write_paths=sandbox_cfg.extra_write_paths if sandbox_cfg else None,
+            escalation_fn=(
+                _cli_prompt_fn
+                if sandbox_cfg is None or sandbox_cfg.escalation == "prompt"
+                else None
+            ),
+        )
+    )
     registry.register(FileReadTool())
     registry.register(FileWriteTool())
     registry.register(FileEditTool())
@@ -223,6 +240,7 @@ def _build_flag_registry(config: NornConfig) -> FeatureFlagRegistry:
             "mcp": FeatureFlag("mcp", False, "MCP server tools"),
             "coderag": FeatureFlag("coderag", False, "CodeRAG hybrid retrieval tools"),
             "vision_tools": FeatureFlag("vision_tools", False, "image_read multimodal tool"),
+            "sandbox": FeatureFlag("sandbox", False, "Fail-closed bash confinement (seatbelt)"),
         }
     )
     registry.apply_config(
@@ -234,6 +252,7 @@ def _build_flag_registry(config: NornConfig) -> FeatureFlagRegistry:
             "mcp": config.flags.mcp,
             "coderag": config.flags.coderag,
             "vision_tools": config.flags.vision_tools,
+            "sandbox": config.sandbox.enabled,
         }
     )
     return registry
@@ -368,7 +387,10 @@ def chat(
     )
     _vision_model, _vision_api_base = _resolve_vision_model(config)
     registry = _build_registry(
-        flag_registry, vision_model=_vision_model, vision_api_base=_vision_api_base
+        flag_registry,
+        vision_model=_vision_model,
+        vision_api_base=_vision_api_base,
+        config=config,
     )
     # Load MCP adapters and inject into registry
     for adapter in _load_mcp_adapters(config, flag_registry):
@@ -492,7 +514,10 @@ def run(
     )
     _vision_model, _vision_api_base = _resolve_vision_model(config)
     registry = _build_registry(
-        flag_registry, vision_model=_vision_model, vision_api_base=_vision_api_base
+        flag_registry,
+        vision_model=_vision_model,
+        vision_api_base=_vision_api_base,
+        config=config,
     )
     # Load MCP adapters and inject into registry
     for adapter in _load_mcp_adapters(config, flag_registry):
@@ -598,7 +623,10 @@ def coordinate(
     flag_registry = _build_flag_registry(config)
     _vision_model, _vision_api_base = _resolve_vision_model(config)
     registry = _build_registry(
-        flag_registry, vision_model=_vision_model, vision_api_base=_vision_api_base
+        flag_registry,
+        vision_model=_vision_model,
+        vision_api_base=_vision_api_base,
+        config=config,
     )
     # Load MCP adapters and inject into registry
     for adapter in _load_mcp_adapters(config, flag_registry):
@@ -650,7 +678,10 @@ def tools(verbose: VerboseOption = False) -> None:
     flag_registry = _build_flag_registry(config)
     _vision_model, _vision_api_base = _resolve_vision_model(config)
     registry = _build_registry(
-        flag_registry, vision_model=_vision_model, vision_api_base=_vision_api_base
+        flag_registry,
+        vision_model=_vision_model,
+        vision_api_base=_vision_api_base,
+        config=config,
     )
     # Load MCP adapters and inject into registry
     for adapter in _load_mcp_adapters(config, flag_registry):

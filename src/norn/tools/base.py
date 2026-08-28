@@ -38,6 +38,9 @@ class ToolErrorType(StrEnum):
     NOT_SUPPORTED = "NotSupported"
     EXECUTION_ERROR = "ExecutionError"
     RESOURCE_EXHAUSTED = "ResourceExhausted"
+    # SOTA v2 (workstream C): confinement requested but no sandbox mechanism
+    # is available — execution refused (fail-closed), never run unconfined.
+    SANDBOX_UNAVAILABLE = "SandboxUnavailable"
 
 
 class ToolContext(BaseModel):

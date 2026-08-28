@@ -173,6 +173,21 @@ class ContextConfig(BaseModel):
     max_tools_per_turn: int = 8
 
 
+class SandboxConfig(BaseModel):
+    """SOTA v2 (workstream C): fail-closed bash confinement.
+
+    Orthogonal to the permissions system: permissions decide whether a
+    command may start; the sandbox bounds what it can touch while running.
+    `yolo` mode + sandbox on = confined autonomy.
+    """
+
+    enabled: bool = False
+    default_policy: str = "workspace-write"  # read-only | workspace-write | danger-full-access
+    allow_network: bool = False
+    extra_write_paths: list[str] = Field(default_factory=list)
+    escalation: Literal["prompt", "deny"] = "prompt"
+
+
 class RecordingConfig(BaseModel):
     """SOTA v2 (workstream A): record LLM exchanges for replay tests."""
 
@@ -193,6 +208,7 @@ class NornConfig(BaseModel):
     logging: LoggingConfig = LoggingConfig()
     bench: BenchConfig = BenchConfig()
     recording: RecordingConfig = RecordingConfig()
+    sandbox: SandboxConfig = SandboxConfig()
 
     @classmethod
     def from_yaml(cls, path: Path) -> NornConfig:

@@ -116,6 +116,17 @@ logging:
     - "token"
     - "password"
 
+# SOTA v2 (workstream C): fail-closed bash confinement (macOS seatbelt).
+# Orthogonal to permissions: permissions gate whether a command starts,
+# the sandbox bounds what it touches while running. If confinement is
+# requested but unavailable, execution is REFUSED (never silently unconfined).
+sandbox:
+  enabled: false
+  default_policy: "workspace-write"   # read-only | workspace-write | danger-full-access
+  allow_network: false
+  extra_write_paths: []
+  escalation: "prompt"                # prompt | deny (for danger-full-access requests)
+
 # SOTA v2 (workstream A): record LLM exchanges per session for replay tests.
 # Also enabled by `--record` or NORN_RECORD=1.
 recording:
