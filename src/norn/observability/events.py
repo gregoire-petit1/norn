@@ -39,3 +39,8 @@ class EventName(StrEnum):
     PERMISSION_DECISION = "permission.decision"
     ROUTING_DECISION = "routing.decision"
     FALLBACK = "fallback"
+    # SOTA v2 (workstream A): append-only thread invariant + record/replay
+    INVARIANT_VIOLATION = "invariant.violation"
+    LLM_EXCHANGE = "llm.exchange"
+    # SOTA v2 (workstream C): fail-closed bash sandbox
+    SANDBOX_DECISION = "sandbox.decision"

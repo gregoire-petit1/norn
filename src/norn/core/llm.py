@@ -97,6 +97,19 @@ def _parse_tool_calls(raw_tool_calls: list | None) -> list[ToolCall]:
     return calls
 
 
+def _token_usage_from_provider(usage: Any) -> TokenUsage:
+    """Build a TokenUsage from a litellm usage object (None-safe)."""
+    if usage is None:
+        return TokenUsage()
+    return TokenUsage(
+        prompt_tokens=getattr(usage, "prompt_tokens", 0) or 0,
+        completion_tokens=getattr(usage, "completion_tokens", 0) or 0,
+        total_tokens=getattr(usage, "total_tokens", 0) or 0,
+        cache_read_tokens=getattr(usage, "cache_read_input_tokens", 0) or 0,
+        cache_creation_tokens=getattr(usage, "cache_creation_input_tokens", 0) or 0,
+    )
+
+
 def _provider_from_model(model: str) -> str:
     """Extract provider name from a litellm-style model id.
 
@@ -132,6 +145,26 @@ def _supports_prompt_cache(model: str) -> bool:
     return model.startswith(_CACHE_ELIGIBLE_PREFIXES)
 
 
+def _strip_cache_break(messages: list[dict]) -> list[dict]:
+    """Remove the CACHE_BREAK sentinel from a system message, if present.
+
+    Called on the non-caching path so the sentinel never reaches a provider.
+    Returns a copy when a strip occurs; the originals are not mutated.
+    """
+    from norn.core.prompts import CACHE_BREAK
+
+    if not messages or messages[0].get("role") != "system":
+        return messages
+    content = messages[0].get("content", "")
+    if not (isinstance(content, str) and CACHE_BREAK in content):
+        return messages
+    new_messages = list(messages)
+    sys_msg = dict(new_messages[0])
+    sys_msg["content"] = content.replace(CACHE_BREAK, "\n\n")
+    new_messages[0] = sys_msg
+    return new_messages
+
+
 def _apply_cache_markers(
     messages: list[dict],
     tools: list[dict] | None,
@@ -143,24 +176,44 @@ def _apply_cache_markers(
     :func:`_supports_prompt_cache` to avoid sending markers to providers
     that don't understand them.
 
+    When the system prompt contains the ``CACHE_BREAK`` sentinel (byte-stable
+    prompt layout, SOTA v2 workstream D), the prompt is split into two text
+    blocks: the session-static prefix gets the ``cache_control`` marker, the
+    volatile suffix (memory/lessons) does not — so a memory change no longer
+    invalidates the whole system-prompt cache entry. The sentinel itself is
+    never sent to the provider.
+
     Returns a (messages, tools) tuple with the marked copies; the originals
     are not mutated.
     """
     if not enabled:
-        return messages, tools
+        return _strip_cache_break(messages), tools
+
+    from norn.core.prompts import CACHE_BREAK
 
     new_messages = list(messages)
     if new_messages and new_messages[0].get("role") == "system":
         sys_msg = dict(new_messages[0])
         content = sys_msg.get("content", "")
         if isinstance(content, str):
-            sys_msg["content"] = [
-                {
-                    "type": "text",
-                    "text": content,
-                    "cache_control": {"type": "ephemeral"},
-                }
-            ]
+            if CACHE_BREAK in content:
+                static, _, volatile = content.partition(CACHE_BREAK)
+                sys_msg["content"] = [
+                    {
+                        "type": "text",
+                        "text": static,
+                        "cache_control": {"type": "ephemeral"},
+                    },
+                    {"type": "text", "text": volatile},
+                ]
+            else:
+                sys_msg["content"] = [
+                    {
+                        "type": "text",
+                        "text": content,
+                        "cache_control": {"type": "ephemeral"},
+                    }
+                ]
         new_messages[0] = sys_msg
 
     new_tools = tools
@@ -172,6 +225,13 @@ def _apply_cache_markers(
         }
 
     return new_messages, new_tools
+
+
+# Providers whose OpenAI-compatible streaming API needs an explicit
+# ``stream_options`` opt-in to report usage on the final chunk. Anthropic
+# reports usage without it; unknown providers are left untouched (some
+# reject the field outright).
+_STREAM_USAGE_PROVIDERS = ("openai", "openrouter", "groq", "github_copilot")
 
 
 # HTTP status codes worth retrying: rate limit + transient server-side faults.
@@ -320,6 +380,9 @@ class LiteLLMProvider:
             kwargs["messages"] = marked_messages
             if marked_tools is not None:
                 kwargs["tools"] = marked_tools
+        else:
+            # Never leak the CACHE_BREAK sentinel to a non-caching provider.
+            kwargs["messages"] = _strip_cache_break(kwargs["messages"])
 
         async with measure_and_log(
             _log,
@@ -342,28 +405,13 @@ class LiteLLMProvider:
             choice = response.choices[0] if response.choices else None
             usage = getattr(response, "usage", None)
 
-            if usage is not None:
-                token_usage = TokenUsage(
-                    prompt_tokens=getattr(usage, "prompt_tokens", 0) or 0,
-                    completion_tokens=getattr(usage, "completion_tokens", 0) or 0,
-                    total_tokens=getattr(usage, "total_tokens", 0) or 0,
-                )
-            else:
-                token_usage = TokenUsage(
-                    prompt_tokens=0,
-                    completion_tokens=0,
-                    total_tokens=0,
-                )
+            token_usage = _token_usage_from_provider(usage)
 
             event["prompt_tokens"] = token_usage.prompt_tokens
             event["completion_tokens"] = token_usage.completion_tokens
             event["total_tokens"] = token_usage.total_tokens
-            event["cache_read_tokens"] = (
-                (getattr(usage, "cache_read_input_tokens", 0) or 0) if usage is not None else 0
-            )
-            event["cache_creation_tokens"] = (
-                (getattr(usage, "cache_creation_input_tokens", 0) or 0) if usage is not None else 0
-            )
+            event["cache_read_tokens"] = token_usage.cache_read_tokens
+            event["cache_creation_tokens"] = token_usage.cache_creation_tokens
             event["finish_reason"] = (
                 getattr(choice, "finish_reason", None) if choice is not None else None
             )
@@ -402,6 +450,9 @@ class LiteLLMProvider:
             "max_tokens": max_tokens,
             "stream": True,
         }
+        provider_name = _provider_from_model(self.model)
+        if provider_name in _STREAM_USAGE_PROVIDERS:
+            kwargs["stream_options"] = {"include_usage": True}
         if self.api_base:
             kwargs["api_base"] = self.api_base
         if self._request_timeout is not None:
@@ -421,74 +472,92 @@ class LiteLLMProvider:
             kwargs["messages"] = marked_messages
             if marked_tools is not None:
                 kwargs["tools"] = marked_tools
+        else:
+            # Never leak the CACHE_BREAK sentinel to a non-caching provider.
+            kwargs["messages"] = _strip_cache_break(kwargs["messages"])
 
-        completion = self._completion_fn or litellm.acompletion
-        response = await _retry_on_transient_error(
-            lambda: self._call_with_timeout(completion, kwargs),
-            self._max_retries,
-            self._retry_backoff,
-        )
+        # Wrap the whole stream in the same ``llm.complete`` lifecycle event as
+        # complete(), so interactive (streaming) sessions land in the JSONL
+        # logs with token + cache metrics. Emitted only when the stream runs
+        # to completion (an abandoned generator raises GeneratorExit, which
+        # bypasses the emit by design).
+        async with measure_and_log(
+            _log,
+            EventName.LLM_COMPLETE,
+            duration_field="latency_ms",
+            provider=provider_name,
+            model=self.model,
+            stream=True,
+        ) as event:
+            completion = self._completion_fn or litellm.acompletion
+            response = await _retry_on_transient_error(
+                lambda: self._call_with_timeout(completion, kwargs),
+                self._max_retries,
+                self._retry_backoff,
+            )
 
-        # Accumulator for fragmented tool calls (keyed by index)
-        tc_accum: dict[int, dict] = {}
-        final_usage = None
+            # Accumulator for fragmented tool calls (keyed by index)
+            tc_accum: dict[int, dict] = {}
+            final_usage = None
 
-        async for chunk in response:
-            choice = chunk.choices[0] if chunk.choices else None
-            if choice is None:
-                continue
+            async for chunk in response:
+                choice = chunk.choices[0] if chunk.choices else None
+                if choice is None:
+                    continue
 
-            delta = choice.delta
+                delta = choice.delta
 
-            # Accumulate tool call fragments
-            if hasattr(delta, "tool_calls") and delta.tool_calls:
-                for tc_delta in delta.tool_calls:
-                    idx = tc_delta.index
-                    if idx not in tc_accum:
-                        tc_accum[idx] = {"id": "", "name": "", "arguments": ""}
-                    if tc_delta.id:
-                        tc_accum[idx]["id"] = tc_delta.id
-                    if tc_delta.function:
-                        if tc_delta.function.name:
-                            tc_accum[idx]["name"] = tc_delta.function.name
-                        if tc_delta.function.arguments:
-                            tc_accum[idx]["arguments"] += tc_delta.function.arguments
+                # Accumulate tool call fragments
+                if hasattr(delta, "tool_calls") and delta.tool_calls:
+                    for tc_delta in delta.tool_calls:
+                        idx = tc_delta.index
+                        if idx not in tc_accum:
+                            tc_accum[idx] = {"id": "", "name": "", "arguments": ""}
+                        if tc_delta.id:
+                            tc_accum[idx]["id"] = tc_delta.id
+                        if tc_delta.function:
+                            if tc_delta.function.name:
+                                tc_accum[idx]["name"] = tc_delta.function.name
+                            if tc_delta.function.arguments:
+                                tc_accum[idx]["arguments"] += tc_delta.function.arguments
 
-            # Track usage from final chunk
-            if hasattr(chunk, "usage") and chunk.usage:
-                final_usage = chunk.usage
+                # Track usage from final chunk
+                if hasattr(chunk, "usage") and chunk.usage:
+                    final_usage = chunk.usage
 
-            content = delta.content if hasattr(delta, "content") else None
-            done = choice.finish_reason is not None
+                content = delta.content if hasattr(delta, "content") else None
+                done = choice.finish_reason is not None
 
-            if done:
-                # Assemble accumulated tool calls
-                assembled_calls = None
-                if tc_accum:
-                    assembled_calls = []
-                    for idx in sorted(tc_accum):
-                        tc = tc_accum[idx]
-                        try:
-                            args = json.loads(tc["arguments"]) if tc["arguments"] else {}
-                        except (json.JSONDecodeError, ValueError):
-                            args = {}
-                        assembled_calls.append(
-                            ToolCall(id=tc["id"], name=tc["name"], arguments=args)
-                        )
+                if done:
+                    # Assemble accumulated tool calls
+                    assembled_calls = None
+                    if tc_accum:
+                        assembled_calls = []
+                        for idx in sorted(tc_accum):
+                            tc = tc_accum[idx]
+                            try:
+                                args = json.loads(tc["arguments"]) if tc["arguments"] else {}
+                            except (json.JSONDecodeError, ValueError):
+                                args = {}
+                            assembled_calls.append(
+                                ToolCall(id=tc["id"], name=tc["name"], arguments=args)
+                            )
 
-                usage = None
-                if final_usage:
-                    usage = TokenUsage(
-                        prompt_tokens=getattr(final_usage, "prompt_tokens", 0) or 0,
-                        completion_tokens=getattr(final_usage, "completion_tokens", 0) or 0,
-                        total_tokens=getattr(final_usage, "total_tokens", 0) or 0,
+                    usage = None
+                    if final_usage:
+                        usage = _token_usage_from_provider(final_usage)
+                        event["prompt_tokens"] = usage.prompt_tokens
+                        event["completion_tokens"] = usage.completion_tokens
+                        event["total_tokens"] = usage.total_tokens
+                        event["cache_read_tokens"] = usage.cache_read_tokens
+                        event["cache_creation_tokens"] = usage.cache_creation_tokens
+                    event["finish_reason"] = choice.finish_reason
+
+                    yield StreamChunk(
+                        content=content,
+                        tool_calls=assembled_calls,
+                        done=True,
+                        usage=usage,
                     )
-
-                yield StreamChunk(
-                    content=content,
-                    tool_calls=assembled_calls,
-                    done=True,
-                    usage=usage,
-                )
-            else:
-                yield StreamChunk(content=content, done=False)
+                else:
+                    yield StreamChunk(content=content, done=False)

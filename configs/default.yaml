@@ -49,6 +49,12 @@ agent:
   auto_verify: false
   auto_verify_max_rounds: 2
   minify_tool_schemas: true
+  # SOTA v2 (W1.1): byte-stable system prompt — static prefix (instructions +
+  # env + repo map) cached independently from volatile memory/lessons suffix.
+  stable_prompt: false
+  # SOTA v2 (W1.2): append-only thread invariant check before each LLM
+  # dispatch (fail-open in production; strict via NORN_STRICT_INVARIANTS=1).
+  thread_invariants: true
   max_tool_result_chars: 8000
   max_turn_output_chars: 30000   # Per-turn budget across all tool calls
   env_bootstrap: true            # Inject [Environment] snapshot into system prompt
@@ -109,6 +115,12 @@ logging:
     - "authorization"
     - "token"
     - "password"
+
+# SOTA v2 (workstream A): record LLM exchanges per session for replay tests.
+# Also enabled by `--record` or NORN_RECORD=1.
+recording:
+  enabled: false
+  dir: "~/.norn/recordings"
 
 bench:
   tasks_dir: "benchmarks/tasks"

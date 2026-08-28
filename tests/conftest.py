@@ -70,6 +70,30 @@ def _redirect_default_log_dir(tmp_path: Path, request: pytest.FixtureRequest) ->
         NornConfig.model_rebuild(force=True)
 
 
+@pytest.fixture
+def replay_provider():
+    """Load a ReplayProvider from ``tests/fixtures/replay/<name>``."""
+    from pathlib import Path as _Path
+
+    from norn.core.replay import ReplayProvider
+
+    def _load(name: str) -> ReplayProvider:
+        return ReplayProvider(_Path(__file__).parent / "fixtures" / "replay" / name)
+
+    return _load
+
+
+@pytest.fixture(autouse=True)
+def _strict_thread_invariants(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Run the whole suite with strict thread invariants (SOTA v2, W1.2).
+
+    Any test exercising the agent loop becomes an anti-mutation harness:
+    a mutated/replaced/reordered history message raises
+    ``ThreadInvariantError`` instead of being silently tolerated.
+    """
+    monkeypatch.setenv("NORN_STRICT_INVARIANTS", "1")
+
+
 @pytest.fixture(autouse=True)
 def _reset_session_contextvar() -> Iterator[None]:
     """Ensure the session_id contextvar is reset between tests.

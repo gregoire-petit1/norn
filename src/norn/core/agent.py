@@ -17,6 +17,7 @@ from norn.core.models import (
     ToolCall,
 )
 from norn.core.prompts import AGENT_SYSTEM_PROMPT
+from norn.core.thread_ledger import ThreadInvariantError, ThreadLedger
 from norn.core.tool_call_extractor import extract_tool_calls_from_text
 from norn.core.turn_budget import TurnBudgetTracker
 from norn.observability import EventName, get_logger, measure_and_log
@@ -64,6 +65,8 @@ class AgentLoop:
         repo_map_exclude: list[str] | None = None,
         context_manager: ContextManager | None = None,
         tool_selector: ToolSelector | None = None,
+        stable_prompt: bool = False,
+        thread_invariants: bool = True,
     ) -> None:
         self.llm = llm
         self.registry = registry
@@ -80,6 +83,12 @@ class AgentLoop:
         self._turn_budget = TurnBudgetTracker(max_chars_per_turn=max_turn_output_chars)
         self._context_manager = context_manager
         self._tool_selector = tool_selector
+        if tool_selector is not None:
+            # Dynamic tool selection varies the `tools` array per turn; on
+            # providers where tools precede the system prompt in the cache
+            # prefix (Anthropic), this defeats prompt caching entirely.
+            with contextlib.suppress(Exception):
+                _log.warning("dynamic_tools_breaks_prompt_cache")
         # Environment bootstrap
         self._env_snapshot: str | None = None
         if env_bootstrap:
@@ -105,8 +114,15 @@ class AgentLoop:
         # Env snapshot and repo map are static after construction.
         self._system_prompt_cache: str | None = None
         self._last_prompt_key: tuple[str, str] = ("", "")
+        # W1.1 (SOTA v2): byte-stable prompt layout — session-static prefix
+        # (instructions + env + repo map) first, volatile suffix (memory +
+        # lessons) after a CACHE_BREAK sentinel that llm.py splits on.
+        self._stable_prompt = stable_prompt
         # W3.1/W3.2: track failure patterns from the last completed turn.
         self.last_failure_patterns: list[str] = []
+        # W1.2 (SOTA v2): append-only thread invariant. Fail-open in
+        # production, fail-hard under NORN_STRICT_INVARIANTS=1 (tests/CI).
+        self._ledger: ThreadLedger | None = ThreadLedger() if thread_invariants else None
 
     def _build_system_prompt(self) -> str:
         """Build system prompt with optional memory + lessons injection."""
@@ -117,15 +133,34 @@ class AgentLoop:
         if self._system_prompt_cache is not None and prompt_key == self._last_prompt_key:
             return self._system_prompt_cache
 
-        prompt = self.system_prompt
-        if memory_content.strip():
-            prompt += "\n\n## Persistent Memory\n\n" + memory_content
-        if lessons_content.strip():
-            prompt += "\n\n## Learned Lessons\n\n" + lessons_content
-        if self._env_snapshot:
-            prompt += "\n\n" + self._env_snapshot
-        if self._repo_map:
-            prompt += "\n\n" + self._repo_map
+        if self._stable_prompt:
+            # Byte-stable layout: everything fixed for the session first, then
+            # the volatile memory/lessons suffix behind a CACHE_BREAK sentinel
+            # so llm.py can cache the static prefix independently.
+            from norn.core.prompts import CACHE_BREAK
+
+            prompt = self.system_prompt
+            if self._env_snapshot:
+                prompt += "\n\n" + self._env_snapshot
+            if self._repo_map:
+                prompt += "\n\n" + self._repo_map
+            volatile = ""
+            if memory_content.strip():
+                volatile += "\n\n## Persistent Memory\n\n" + memory_content
+            if lessons_content.strip():
+                volatile += "\n\n## Learned Lessons\n\n" + lessons_content
+            if volatile:
+                prompt += CACHE_BREAK + volatile.lstrip("\n")
+        else:
+            prompt = self.system_prompt
+            if memory_content.strip():
+                prompt += "\n\n## Persistent Memory\n\n" + memory_content
+            if lessons_content.strip():
+                prompt += "\n\n## Learned Lessons\n\n" + lessons_content
+            if self._env_snapshot:
+                prompt += "\n\n" + self._env_snapshot
+            if self._repo_map:
+                prompt += "\n\n" + self._repo_map
 
         self._system_prompt_cache = prompt
         self._last_prompt_key = prompt_key
@@ -169,6 +204,26 @@ class AgentLoop:
 
         return patterns
 
+    def _check_invariants(self, outbound: list[Message]) -> None:
+        """Validate the append-only thread invariant before an LLM dispatch.
+
+        Fail-open in production (log ``invariant.violation``, keep going);
+        strict mode raises ``ThreadInvariantError`` from the ledger itself.
+        """
+        if self._ledger is None:
+            return
+        try:
+            self._ledger.extend(self.history)
+            violations = self._ledger.verify(self.history)
+            violations += self._ledger.verify_derivation(outbound, self.history)
+        except ThreadInvariantError:
+            raise
+        except Exception:
+            return  # observability of the check itself is fail-open
+        if violations:
+            with contextlib.suppress(Exception):
+                _log.error(EventName.INVARIANT_VIOLATION, violations=violations)
+
     def _post_turn_hook(self, messages: list[Message], final_content: str | None) -> None:
         """Log failure patterns after a turn completes. Fail-open."""
         self.last_failure_patterns = self._detect_failure_patterns(messages, final_content)
@@ -207,6 +262,7 @@ class AgentLoop:
         for _round in range(self._max_tool_rounds):
             self._turn_budget.reset()
 
+            self._check_invariants(messages)
             response = await self.llm.complete(
                 messages=messages,
                 tools=self._get_tools_for_turn(messages),
@@ -291,6 +347,7 @@ class AgentLoop:
             accumulated_tool_calls: list[ToolCall] = []
             final_usage = None
 
+            self._check_invariants(messages)
             async for chunk in self.llm.stream(
                 messages=messages,
                 tools=self._get_tools_for_turn(messages),

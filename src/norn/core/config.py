@@ -121,6 +121,13 @@ class AgentConfig(BaseModel):
     auto_verify: bool = False
     auto_verify_max_rounds: int = 2
     minify_tool_schemas: bool = True
+    # W1.1 (SOTA v2): byte-stable system prompt — session-static prefix first,
+    # volatile memory/lessons behind a CACHE_BREAK split into its own
+    # cache_control block. Off by default (opt-in while validated on bench).
+    stable_prompt: bool = False
+    # W1.2 (SOTA v2): append-only thread invariant (fail-open in production,
+    # fail-hard under NORN_STRICT_INVARIANTS=1).
+    thread_invariants: bool = True
     max_tool_result_chars: int = 8000
     max_turn_output_chars: int = 30000  # Per-turn budget across all tool calls
     env_bootstrap: bool = True  # Phase 10: inject environment snapshot
@@ -157,6 +164,13 @@ class ContextConfig(BaseModel):
     max_tools_per_turn: int = 8
 
 
+class RecordingConfig(BaseModel):
+    """SOTA v2 (workstream A): record LLM exchanges for replay tests."""
+
+    enabled: bool = False
+    dir: str = "~/.norn/recordings"
+
+
 class NornConfig(BaseModel):
     llm: LLMConfig = LLMConfig()
     permissions: PermissionsConfig = PermissionsConfig()
@@ -169,6 +183,7 @@ class NornConfig(BaseModel):
     router: RouterConfig = RouterConfig()
     logging: LoggingConfig = LoggingConfig()
     bench: BenchConfig = BenchConfig()
+    recording: RecordingConfig = RecordingConfig()
 
     @classmethod
     def from_yaml(cls, path: Path) -> NornConfig:
@@ -197,6 +212,10 @@ class NornConfig(BaseModel):
             "NORN_LLM_MODEL": ("llm", "model"),
             "NORN_PERMISSION_MODE": ("permissions", "mode"),
         }
+        # NORN_RECORD=1 turns on exchange recording (SOTA v2, workstream A)
+        if os.environ.get("NORN_RECORD") == "1":
+            self.recording.enabled = True
+
         for env_key, (section, field) in env_map.items():
             value = os.environ.get(env_key)
             if value is not None:

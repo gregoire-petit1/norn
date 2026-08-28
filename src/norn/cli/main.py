@@ -159,6 +159,30 @@ def _build_provider(
     )
 
 
+def _maybe_wrap_recording(
+    provider: LiteLLMProvider | RouterProvider,
+    config: NornConfig,
+    record_flag: bool,
+) -> LiteLLMProvider | RouterProvider:
+    """Wrap the provider in a RecordingProvider when recording is requested.
+
+    SOTA v2 (workstream A): the recorded JSONL doubles as a replay-test
+    fixture. Transparent wrapper — satisfies the LLMProvider protocol.
+    """
+    if not (record_flag or config.recording.enabled):
+        return provider
+    from pathlib import Path
+
+    from norn.core.replay import RecordingProvider
+    from norn.observability.logger import session_id_var
+
+    sid = session_id_var.get() or "session"
+    rec_dir = Path(config.recording.dir).expanduser()
+    rec_path = rec_dir / f"{sid}.jsonl"
+    console.print(f"[dim]Recording LLM exchanges to {rec_path}[/dim]")
+    return RecordingProvider(provider, rec_path)  # type: ignore[return-value]
+
+
 async def _cli_prompt_fn(request: PermissionRequest, description: str) -> bool:
     """Prompt the user for permission approval via rich."""
     risk_colors = {"low": "green", "medium": "yellow", "high": "red"}
@@ -278,6 +302,14 @@ VerboseOption = Annotated[
     typer.Option("--verbose", "-v", help="Enable DEBUG level structured logging"),
 ]
 
+RecordOption = Annotated[
+    bool,
+    typer.Option(
+        "--record",
+        help="Record LLM exchanges to a session JSONL (replay-test fixture)",
+    ),
+]
+
 
 def _print_metrics(response: LLMResponse) -> None:
     """Print a dim metrics line below the response."""
@@ -310,14 +342,20 @@ def _make_tool_progress() -> None:
 
 
 @app.command()
-def chat(model: ModelOption = None, verbose: VerboseOption = False) -> None:
+def chat(
+    model: ModelOption = None,
+    verbose: VerboseOption = False,
+    record: RecordOption = False,
+) -> None:
     """Start an interactive chat session."""
     config = NornConfig.load()
     config.apply_env_overrides()
     _bootstrap_logging(config, verbose=verbose)
 
     flag_registry = _build_flag_registry(config)
-    provider = _build_provider(config, model_override=model)
+    provider = _maybe_wrap_recording(
+        _build_provider(config, model_override=model), config, record
+    )
     _vision_model, _vision_api_base = _resolve_vision_model(config)
     registry = _build_registry(
         flag_registry, vision_model=_vision_model, vision_api_base=_vision_api_base
@@ -340,6 +378,8 @@ def chat(model: ModelOption = None, verbose: VerboseOption = False) -> None:
         session_logger=session_logger,
         max_tool_rounds=config.agent.max_tool_rounds,
         minify_tool_schemas=config.agent.minify_tool_schemas,
+        stable_prompt=config.agent.stable_prompt,
+        thread_invariants=config.agent.thread_invariants,
         max_tool_result_chars=config.agent.max_tool_result_chars,
         max_turn_output_chars=config.agent.max_turn_output_chars,
         env_bootstrap=config.agent.env_bootstrap,
@@ -429,6 +469,7 @@ def run(
     prompt: str = typer.Argument(help="One-shot prompt to execute"),
     model: ModelOption = None,
     verbose: VerboseOption = False,
+    record: RecordOption = False,
 ) -> None:
     """Run a one-shot prompt and exit."""
     config = NornConfig.load()
@@ -436,7 +477,9 @@ def run(
     _bootstrap_logging(config, verbose=verbose)
 
     flag_registry = _build_flag_registry(config)
-    provider = _build_provider(config, model_override=model)
+    provider = _maybe_wrap_recording(
+        _build_provider(config, model_override=model), config, record
+    )
     _vision_model, _vision_api_base = _resolve_vision_model(config)
     registry = _build_registry(
         flag_registry, vision_model=_vision_model, vision_api_base=_vision_api_base
@@ -459,6 +502,8 @@ def run(
         session_logger=session_logger,
         max_tool_rounds=config.agent.max_tool_rounds,
         minify_tool_schemas=config.agent.minify_tool_schemas,
+        stable_prompt=config.agent.stable_prompt,
+        thread_invariants=config.agent.thread_invariants,
         max_tool_result_chars=config.agent.max_tool_result_chars,
         max_turn_output_chars=config.agent.max_turn_output_chars,
         env_bootstrap=config.agent.env_bootstrap,

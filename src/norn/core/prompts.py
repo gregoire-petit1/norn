@@ -75,3 +75,11 @@ If ANY item is not [DONE]: fix it now with tools, then re-check.
 End your reply with exactly one line containing only one word:
 PASS  — every item proven [DONE] by execution
 FAIL  — anything still [TODO], wrong, or unproven"""
+
+
+# W1.1 (SOTA v2, workstream D): sentinel separating the byte-stable prefix of
+# the system prompt (instructions + env snapshot + repo map, fixed for the
+# session) from the volatile suffix (memory + lessons, may change between
+# turns). llm.py splits on it to give the stable prefix its own cache_control
+# block; the marker is always stripped before the provider sees the prompt.
+CACHE_BREAK = "\n<!-- norn:cache-break -->\n"
