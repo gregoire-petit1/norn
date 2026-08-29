@@ -61,3 +61,39 @@ async def test_grep_invalid_regex_sets_invalid_argument(tool, tmp_path):
     result = await tool.execute(GrepInput(pattern="[unclosed", path=str(tmp_path)), ctx)
     assert result.is_error is True
     assert result.error_type == ToolErrorType.INVALID_ARGUMENT.value
+
+
+# Wave 2 (B) — AXI output mode
+
+
+@pytest.mark.asyncio
+async def test_grep_axi_lead_line(tmp_path):
+    (tmp_path / "a.py").write_text("hello world\nhello again\n")
+    (tmp_path / "b.py").write_text("hello there\n")
+    tool = GrepTool(axi_output=True)
+    result = await tool.execute(
+        GrepInput(pattern="hello", path=str(tmp_path)), ToolContext(cwd=str(tmp_path))
+    )
+    first = result.output.splitlines()[0]
+    assert first == "3 matches in 2 files"
+
+
+@pytest.mark.asyncio
+async def test_grep_axi_empty_has_next_step(tmp_path):
+    (tmp_path / "a.py").write_text("nothing here\n")
+    tool = GrepTool(axi_output=True)
+    result = await tool.execute(
+        GrepInput(pattern="zzz", path=str(tmp_path)), ToolContext(cwd=str(tmp_path))
+    )
+    assert result.output.startswith("No matches. Next:")
+
+
+@pytest.mark.asyncio
+async def test_grep_default_output_unchanged(tmp_path):
+    (tmp_path / "a.py").write_text("hello\n")
+    tool = GrepTool()  # flag off
+    result = await tool.execute(
+        GrepInput(pattern="hello", path=str(tmp_path)), ToolContext(cwd=str(tmp_path))
+    )
+    assert not result.output.startswith("1 match")  # no AXI header
+    assert "hello" in result.output

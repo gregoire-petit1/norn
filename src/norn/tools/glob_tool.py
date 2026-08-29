@@ -24,6 +24,9 @@ class GlobTool:
     risk_level = RiskLevel.LOW
     input_model = GlobInput
 
+    def __init__(self, *, axi_output: bool = False) -> None:
+        self._axi = axi_output
+
     async def execute(self, input: GlobInput, ctx: ToolContext) -> ToolResult:
         base = Path(input.path) if input.path else Path(ctx.cwd)
         if not base.is_absolute():
@@ -36,8 +39,21 @@ class GlobTool:
             )
 
         matches = sorted(base.glob(input.pattern))
+        shown = [str(m) for m in matches[:500]]
+
+        if self._axi:
+            from norn.tools.axi_format import axi_list_result
+
+            return ToolResult(
+                output=axi_list_result(
+                    shown,
+                    total=len(matches),
+                    shown=len(shown),
+                    noun="files",
+                    full_hint="a more specific pattern or path=",
+                    empty_hint=f"try a broader pattern (e.g. **/{input.pattern})",
+                )
+            )
         if not matches:
             return ToolResult(output="No matches found.")
-
-        output = "\n".join(str(m) for m in matches[:500])
-        return ToolResult(output=output)
+        return ToolResult(output="\n".join(shown))

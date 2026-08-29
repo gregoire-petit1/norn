@@ -115,6 +115,8 @@ def _build_registry(
 ) -> ToolRegistry:
     """Build the default tool registry."""
     registry = ToolRegistry(flag_registry=flag_registry)
+    # Wave 2 (B): AXI token-efficient outputs on the exploration hot-path tools.
+    axi = flag_registry.is_enabled("axi_output") if flag_registry else False
     # SOTA v2 (workstream C): fail-closed bash sandbox, resolved through the
     # flag registry (env NORN_FLAG_SANDBOX > config.sandbox.enabled > off).
     sandbox_enabled = flag_registry.is_enabled("sandbox") if flag_registry else False
@@ -132,11 +134,11 @@ def _build_registry(
             ),
         )
     )
-    registry.register(FileReadTool())
+    registry.register(FileReadTool(axi_output=axi))
     registry.register(FileWriteTool())
     registry.register(FileEditTool())
-    registry.register(GlobTool())
-    registry.register(GrepTool())
+    registry.register(GlobTool(axi_output=axi))
+    registry.register(GrepTool(axi_output=axi))
     # ML tools (gated behind ml_tools feature flag)
     registry.register(ModelInspectorTool(), feature_flag="ml_tools")
     registry.register(TensorInspectorTool(), feature_flag="ml_tools")
@@ -259,6 +261,7 @@ def _build_flag_registry(config: NornConfig) -> FeatureFlagRegistry:
             "coderag": FeatureFlag("coderag", False, "CodeRAG hybrid retrieval tools"),
             "vision_tools": FeatureFlag("vision_tools", False, "image_read multimodal tool"),
             "sandbox": FeatureFlag("sandbox", False, "Fail-closed bash confinement (seatbelt)"),
+            "axi_output": FeatureFlag("axi_output", False, "AXI token-efficient tool outputs"),
         }
     )
     registry.apply_config(
@@ -271,6 +274,7 @@ def _build_flag_registry(config: NornConfig) -> FeatureFlagRegistry:
             "coderag": config.flags.coderag,
             "vision_tools": config.flags.vision_tools,
             "sandbox": config.sandbox.enabled,
+            "axi_output": config.flags.axi_output,
         }
     )
     return registry

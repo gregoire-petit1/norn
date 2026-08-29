@@ -56,6 +56,9 @@ class FlagsConfig(BaseModel):
     # builds the index (latency), and vector search needs the [rag] extra
     # (graceful BM25-only degradation without it).
     coderag: bool = False
+    # Wave 2 (B): AXI token-efficient tool outputs (aggregates, truncation
+    # signals, next-step hints on grep/glob/file_read). Off = byte-identical.
+    axi_output: bool = False
     # image_read multimodal tool. Off by default (needs a vision-capable model
     # and adds sub-call cost); benchmark/headless callers enable it.
     vision_tools: bool = False

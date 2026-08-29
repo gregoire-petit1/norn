@@ -64,3 +64,37 @@ async def test_read_missing_file_sets_file_not_found(tool, tmp_path):
     result = await tool.execute(FileReadInput(path=str(tmp_path / "nope.txt")), ctx)
     assert result.is_error is True
     assert result.error_type == ToolErrorType.FILE_NOT_FOUND.value
+
+
+# Wave 2 (B) — AXI output mode
+
+
+@pytest.mark.asyncio
+async def test_file_read_axi_line_header(tmp_path):
+    f = tmp_path / "x.py"
+    f.write_text("\n".join(f"line {i}" for i in range(100)))
+    tool = FileReadTool(axi_output=True)
+    result = await tool.execute(
+        FileReadInput(path=str(f), offset=0, limit=10), ToolContext(cwd=str(tmp_path))
+    )
+    assert result.output.splitlines()[0] == f"{f}: lines 1-10 of 100"
+
+
+@pytest.mark.asyncio
+async def test_file_read_axi_dir_header(tmp_path):
+    (tmp_path / "sub").mkdir()
+    (tmp_path / "a.txt").write_text("x")
+    tool = FileReadTool(axi_output=True)
+    result = await tool.execute(
+        FileReadInput(path=str(tmp_path)), ToolContext(cwd=str(tmp_path))
+    )
+    assert result.output.splitlines()[0] == "2 entries (1 dirs, 1 files)"
+
+
+@pytest.mark.asyncio
+async def test_file_read_default_unchanged(tmp_path):
+    f = tmp_path / "x.py"
+    f.write_text("a\nb\nc")
+    tool = FileReadTool()
+    result = await tool.execute(FileReadInput(path=str(f)), ToolContext(cwd=str(tmp_path)))
+    assert result.output == "1: a\n2: b\n3: c"

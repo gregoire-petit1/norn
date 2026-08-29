@@ -33,6 +33,7 @@ flags:
   web_search: false     # Phase 6: DuckDuckGo search + web fetch
   mcp: false            # Phase 6: MCP server tools
   coderag: false         # Phase 4: CodeRAG hybrid retrieval (vector search needs [rag] extra)
+  axi_output: false      # Wave 2: AXI token-efficient grep/glob/file_read outputs
   vision_tools: false    # image_read multimodal tool (needs vision-capable model)
 
 mcp:
