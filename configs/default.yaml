@@ -48,6 +48,9 @@ agent:
   # themselves); benchmark/headless callers enable via config override.
   auto_verify: false
   auto_verify_max_rounds: 2
+  # Wave 2 (C): pre-task decomposition for headless runs. 0 = always plan.
+  auto_plan: false
+  auto_plan_min_chars: 0
   minify_tool_schemas: true
   # SOTA v2 (W1.1): byte-stable system prompt — static prefix (instructions +
   # env + repo map) cached independently from volatile memory/lessons suffix.

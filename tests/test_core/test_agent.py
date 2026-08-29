@@ -590,3 +590,94 @@ async def test_run_verified_zero_rounds_is_plain_run(registry):
         pass
 
     assert len(turns) == 1
+
+
+# Wave 2 (C) — auto_plan (plan-first) within run_verified
+
+
+@pytest.mark.asyncio
+async def test_run_verified_plan_first_runs_plan_then_task(registry):
+    """plan_first + 0 verify rounds → plan turn, then bare task turn."""
+    turns = []
+
+    def _stream(**kwargs):
+        turns.append(kwargs["messages"][-1].content)
+        return _mock_stream_text(["ok"])
+
+    llm = AsyncMock()
+    llm.stream = _stream
+    agent = AgentLoop(llm=llm, registry=registry, env_bootstrap=False, repo_map=False)
+    async for _ in agent.run_verified(
+        "build the thing", max_verify_rounds=0, plan_first=True, plan_min_chars=0
+    ):
+        pass
+
+    assert len(turns) == 2
+    # Turn 1 is the plan prompt wrapping the task; turn 2 is the bare task.
+    from norn.core.prompts import PLAN_PROMPT
+
+    assert turns[0].startswith(PLAN_PROMPT[:40])
+    assert "build the thing" in turns[0]
+    assert turns[1] == "build the thing"
+
+
+@pytest.mark.asyncio
+async def test_run_verified_plan_skipped_below_threshold(registry):
+    """A short input under plan_min_chars gets no plan turn."""
+    turns = []
+
+    def _stream(**kwargs):
+        turns.append(kwargs["messages"][-1].content)
+        return _mock_stream_text(["ok"])
+
+    llm = AsyncMock()
+    llm.stream = _stream
+    agent = AgentLoop(llm=llm, registry=registry, env_bootstrap=False, repo_map=False)
+    async for _ in agent.run_verified(
+        "hi", max_verify_rounds=0, plan_first=True, plan_min_chars=10_000
+    ):
+        pass
+
+    assert len(turns) == 1
+    assert turns[0] == "hi"
+
+
+@pytest.mark.asyncio
+async def test_run_verified_plan_then_verify(registry):
+    """plan_first + verify → plan, main, verify (3 turns)."""
+    turns = []
+
+    def _stream(**kwargs):
+        turns.append(kwargs["messages"][-1].content)
+        if len(turns) <= 2:
+            return _mock_stream_text(["working"])
+        return _mock_stream_text(["all good\n", "PASS"])
+
+    llm = AsyncMock()
+    llm.stream = _stream
+    agent = AgentLoop(llm=llm, registry=registry, env_bootstrap=False, repo_map=False)
+    async for _ in agent.run_verified(
+        "a reasonably long task instruction", max_verify_rounds=2, plan_first=True
+    ):
+        pass
+
+    assert len(turns) == 3  # plan, main, one verify (PASS stops)
+
+
+@pytest.mark.asyncio
+async def test_run_verified_no_plan_by_default(registry):
+    """Omitting plan_first reproduces the current single-main-turn behaviour."""
+    turns = []
+
+    def _stream(**kwargs):
+        turns.append(kwargs["messages"][-1].content)
+        return _mock_stream_text(["done"])
+
+    llm = AsyncMock()
+    llm.stream = _stream
+    agent = AgentLoop(llm=llm, registry=registry, env_bootstrap=False, repo_map=False)
+    async for _ in agent.run_verified("do the task", max_verify_rounds=0):
+        pass
+
+    assert len(turns) == 1
+    assert turns[0] == "do the task"

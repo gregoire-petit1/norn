@@ -577,11 +577,17 @@ def run(
     async def _run_once() -> None:
         try:
             renderer = StreamRenderer(console)
-            if config.agent.auto_verify:
+            if config.agent.auto_verify or config.agent.auto_plan:
                 await renderer.render(
                     agent.run_verified(
                         prompt,
-                        max_verify_rounds=config.agent.auto_verify_max_rounds,
+                        max_verify_rounds=(
+                            config.agent.auto_verify_max_rounds
+                            if config.agent.auto_verify
+                            else 0
+                        ),
+                        plan_first=config.agent.auto_plan,
+                        plan_min_chars=config.agent.auto_plan_min_chars,
                     )
                 )
             else:

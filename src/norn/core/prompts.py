@@ -72,6 +72,8 @@ its output — not by conviction. If you cannot prove an item by execution, it i
 [ ] Three perspectives — inspect the result as a test engineer (edge cases), a
     QA engineer (matches the spec literally), and the requesting user (actually
     usable). No extra files or side effects beyond what the task asked.
+[ ] Plan complete — if you wrote a plan earlier, every numbered step of it is
+    now [DONE]; cross-check the plan against what actually exists.
 
 If ANY item is not [DONE]: fix it now with tools, then re-check.
 
@@ -86,3 +88,22 @@ FAIL  — anything still [TODO], wrong, or unproven"""
 # turns). llm.py splits on it to give the stable prefix its own cache_control
 # block; the marker is always stripped before the provider sees the prompt.
 CACHE_BREAK = "\n<!-- norn:cache-break -->\n"
+
+
+# Wave 2 (C / auto_plan): pre-task decomposition prompt for headless runs.
+# Plan-only — the agent must NOT implement in this turn (a separate execution
+# turn follows). Deliberately emits NO PASS/FAIL token so _extract_verdict
+# never mistakes a plan for a verification verdict. The produced plan lands in
+# history and orients the subsequent bare-task turn.
+PLAN_PROMPT = """\
+Before doing the task below, produce a short structured plan. Do NOT modify any
+files yet — you may read or inspect to inform the plan.
+
+1. Task — restate what must be done and its acceptance criteria
+2. Steps — numbered, ordered sub-tasks (decompose long or multi-part work)
+3. Files — every file to create or modify
+4. Test strategy — the exact commands you will run to PROVE each step works
+
+Keep it concise. You will implement it step by step next.
+
+Task: """

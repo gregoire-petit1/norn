@@ -476,19 +476,29 @@ class AgentLoop:
         *,
         max_verify_rounds: int = 2,
         verify_prompt: str | None = None,
+        plan_first: bool = False,
+        plan_prompt: str | None = None,
+        plan_min_chars: int = 0,
     ) -> AsyncIterator[AgentEvent]:
-        """Run the task, then self-verify up to ``max_verify_rounds`` times.
+        """Optionally plan, run the task, then self-verify up to N times.
 
-        After the main run, injects a self-verification turn (same conversation,
-        so history/cache carry over). If the agent's verdict is not PASS, it has
-        already been asked to fix problems with tools during that same turn;
-        another verify turn re-checks. Stops early on PASS or when rounds are
-        exhausted. Falls back to a plain single run when ``max_verify_rounds`` is
-        0, preserving existing behaviour.
+        When ``plan_first`` and the input is at least ``plan_min_chars`` long
+        (0 = always), a decomposition turn runs before the main task (C /
+        auto_plan): the agent produces a structured plan that lands in history
+        and orients the execution turn. Then the main run, then up to
+        ``max_verify_rounds`` self-verification turns (same conversation, so
+        history/cache carry over; verdict not PASS → another verify turn).
+        Stops early on PASS. With ``max_verify_rounds=0`` and ``plan_first=
+        False`` this is a plain single run, preserving existing behaviour.
         """
-        from norn.core.prompts import SELF_VERIFY_PROMPT
+        from norn.core.prompts import PLAN_PROMPT, SELF_VERIFY_PROMPT
 
         prompt = verify_prompt or SELF_VERIFY_PROMPT
+
+        if plan_first and len(user_input) >= plan_min_chars:
+            pprompt = plan_prompt or PLAN_PROMPT
+            async for event in self.run_stream(pprompt + user_input):
+                yield event
 
         async for event in self.run_stream(user_input):
             yield event

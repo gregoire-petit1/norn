@@ -129,6 +129,10 @@ class AgentConfig(BaseModel):
     # own verification); benchmark/headless callers opt in.
     auto_verify: bool = False
     auto_verify_max_rounds: int = 2
+    # Wave 2 (C): pre-task decomposition for headless runs (mirror of
+    # auto_verify, pre-loop). 0 min_chars = always plan when on.
+    auto_plan: bool = False
+    auto_plan_min_chars: int = 0
     minify_tool_schemas: bool = True
     # W1.1 (SOTA v2): byte-stable system prompt — session-static prefix first,
     # volatile memory/lessons behind a CACHE_BREAK split into its own

@@ -55,3 +55,13 @@ def test_self_verify_prompt_demands_execution_proof():
     assert "python" in lower
     # anti-overfit guard (video-processing tuned to example)
     assert any(kw in lower for kw in ("real inputs", "changed values", "overfit"))
+
+
+def test_plan_prompt_is_verdict_free():
+    """PLAN_PROMPT must not carry a PASS/FAIL token (would fool _extract_verdict)."""
+    from norn.core.agent import AgentLoop
+    from norn.core.prompts import PLAN_PROMPT
+
+    assert PLAN_PROMPT.strip()
+    assert "Steps" in PLAN_PROMPT and "Files" in PLAN_PROMPT and "Test" in PLAN_PROMPT
+    assert AgentLoop._extract_verdict(PLAN_PROMPT) == "unknown"
