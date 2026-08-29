@@ -148,6 +148,10 @@ class AgentConfig(BaseModel):
     task_notes: bool = False
     task_notes_path: str = ".norn/task_notes.md"
     task_notes_max_chars: int = 4000
+    # A3 (wave 2): progress-gated round-budget extension.
+    adaptive_rounds: bool = False
+    max_round_extensions: int = 1
+    round_extension_factor: float = 0.5
     max_tool_result_chars: int = 8000
     max_turn_output_chars: int = 30000  # Per-turn budget across all tool calls
     env_bootstrap: bool = True  # Phase 10: inject environment snapshot

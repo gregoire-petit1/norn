@@ -69,6 +69,9 @@ class AgentLoop:
         stable_prompt: bool = False,
         thread_invariants: bool = True,
         task_notes: TaskNotes | None = None,
+        adaptive_rounds: bool = False,
+        max_round_extensions: int = 1,
+        round_extension_factor: float = 0.5,
     ) -> None:
         self.llm = llm
         self.registry = registry
@@ -127,6 +130,10 @@ class AgentLoop:
         self._ledger: ThreadLedger | None = ThreadLedger() if thread_invariants else None
         # A1 (wave 2): persistent task scratchpad, injected each round.
         self._task_notes = task_notes
+        # A3 (wave 2): progress-gated round budget extension.
+        self._adaptive_rounds = adaptive_rounds
+        self._max_round_extensions = max_round_extensions
+        self._round_extension_factor = round_extension_factor
 
     def _build_system_prompt(self) -> str:
         """Build system prompt with optional memory + lessons injection."""
@@ -208,6 +215,40 @@ class AgentLoop:
 
         return patterns
 
+    @staticmethod
+    def _recent_progress(messages: list[Message], window: int = 6) -> bool:
+        """True if the last `window` messages show productive work (A3).
+
+        Productive = a successful file_write/file_edit tool call, or a bash
+        tool result that is not an error. Used to decide whether to grant a
+        round-budget extension when the loop hits its cap.
+        """
+        recent = messages[-window:]
+        error_prefixes = ("Exit code", "Error:", "Unknown tool:", "Permission denied", "Timeout:")
+        wrote = any(
+            msg.role == Role.ASSISTANT
+            and msg.tool_calls
+            and any(tc.name in ("file_write", "file_edit") for tc in msg.tool_calls)
+            for msg in recent
+        )
+        good_bash = any(
+            msg.role == Role.TOOL
+            and (msg.content or "")
+            and not (msg.content or "").startswith(error_prefixes)
+            for msg in recent
+        )
+        return wrote or good_bash
+
+    def _should_extend_rounds(self, messages: list[Message], extensions_used: int) -> bool:
+        """A3: grant a bounded extension when progressing and not stuck."""
+        if not self._adaptive_rounds or extensions_used >= self._max_round_extensions:
+            return False
+        # Negative gate: never extend a stuck run (also cuts it early).
+        patterns = self._detect_failure_patterns(messages, None)
+        if any(p == "error_flood" or p.startswith("tool_loop") for p in patterns):
+            return False
+        return self._recent_progress(messages)
+
     def _check_invariants(self, outbound: list[Message]) -> None:
         """Validate the append-only thread invariant before an LLM dispatch.
 
@@ -280,7 +321,10 @@ class AgentLoop:
                 *self.history,
             ]
 
-        for _round in range(self._max_tool_rounds):
+        budget = self._max_tool_rounds
+        extensions_used = 0
+        _round = 0
+        while _round < budget:
             self._turn_budget.reset()
 
             # Re-render task notes each round so mid-run updates are seen.
@@ -337,6 +381,12 @@ class AgentLoop:
                 messages.append(tool_msg)
                 self.history.append(tool_msg)
 
+            _round += 1
+            # A3: grant a bounded extension if progressing and not stuck.
+            if _round >= budget and self._should_extend_rounds(messages, extensions_used):
+                budget += max(1, int(self._max_tool_rounds * self._round_extension_factor))
+                extensions_used += 1
+
         # Safety: max rounds reached
         final = LLMResponse(content="[Max tool rounds reached]")
         self.history.append(Message(role=Role.ASSISTANT, content=final.content))
@@ -363,7 +413,10 @@ class AgentLoop:
                 *self.history,
             ]
 
-        for _round in range(self._max_tool_rounds):
+        budget = self._max_tool_rounds
+        extensions_used = 0
+        _round = 0
+        while _round < budget:
             self._turn_budget.reset()
             # --- Stream from LLM ---
             accumulated_content = ""
@@ -450,6 +503,12 @@ class AgentLoop:
                     duration_ms=duration_ms,
                     success=result.error is None,
                 )
+
+            _round += 1
+            # A3: grant a bounded extension if progressing and not stuck.
+            if _round >= budget and self._should_extend_rounds(messages, extensions_used):
+                budget += max(1, int(self._max_tool_rounds * self._round_extension_factor))
+                extensions_used += 1
 
         # Safety: max tool rounds reached
         self.history.append(Message(role=Role.ASSISTANT, content="[Max tool rounds reached]"))

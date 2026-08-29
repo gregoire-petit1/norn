@@ -415,6 +415,9 @@ def chat(
         vision_api_base=_vision_api_base,
         config=config,
         task_notes=task_notes,
+        adaptive_rounds=config.agent.adaptive_rounds,
+        max_round_extensions=config.agent.max_round_extensions,
+        round_extension_factor=config.agent.round_extension_factor,
     )
     # Load MCP adapters and inject into registry
     for adapter in _load_mcp_adapters(config, flag_registry):
@@ -446,6 +449,9 @@ def chat(
         context_manager=context_manager,
         tool_selector=tool_selector,
         task_notes=task_notes,
+        adaptive_rounds=config.agent.adaptive_rounds,
+        max_round_extensions=config.agent.max_round_extensions,
+        round_extension_factor=config.agent.round_extension_factor,
     )
 
     cmd_registry = build_default_registry()
@@ -545,6 +551,9 @@ def run(
         vision_api_base=_vision_api_base,
         config=config,
         task_notes=task_notes,
+        adaptive_rounds=config.agent.adaptive_rounds,
+        max_round_extensions=config.agent.max_round_extensions,
+        round_extension_factor=config.agent.round_extension_factor,
     )
     # Load MCP adapters and inject into registry
     for adapter in _load_mcp_adapters(config, flag_registry):
@@ -576,6 +585,9 @@ def run(
         context_manager=context_manager,
         tool_selector=tool_selector,
         task_notes=task_notes,
+        adaptive_rounds=config.agent.adaptive_rounds,
+        max_round_extensions=config.agent.max_round_extensions,
+        round_extension_factor=config.agent.round_extension_factor,
     )
 
     async def _run_once() -> None:

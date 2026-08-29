@@ -64,6 +64,10 @@ agent:
   task_notes: false
   task_notes_path: ".norn/task_notes.md"
   task_notes_max_chars: 4000
+  # Wave 2 (A3): extend the round budget once when progressing and not stuck.
+  adaptive_rounds: false
+  max_round_extensions: 1
+  round_extension_factor: 0.5
   max_tool_result_chars: 8000
   max_turn_output_chars: 30000   # Per-turn budget across all tool calls
   env_bootstrap: true            # Inject [Environment] snapshot into system prompt
