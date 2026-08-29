@@ -20,6 +20,26 @@ That is the official Harbor number (denominator = all 89 tasks). For context,
 top public tb2 agents sit around 45-55%; a bare CLI agent on sonnet is
 typically in the 30s. Norn lands mid-pack on its first external run.
 
+### Update (2026-08-29): infra artefacts eliminated, score unchanged
+
+The first run had 18 infra exceptions (9 install failures, 9 agent
+timeouts) masking whether those tasks were real capability gaps. Both
+classes were fixed and the affected tasks re-run:
+
+- **Install failures (8)** → adapter now provisions Python 3.11 via `uv`
+  into a dedicated venv (commits below). All 8 install and run now.
+- **Timeouts (9)** → re-run with `--agent-timeout-multiplier 2`.
+
+Result of the re-runs: **0 tasks recovered.** Every previously-excepted task
+now runs to completion and **fails the task on its merits** (reward 0) — none
+were held back by infra. The timeouts in particular were not a time problem:
+at 2× budget they still fail, i.e. these are compute/long-horizon tasks Norn
+cannot solve, not slow ones. So **32/89 is a clean number** — every
+non-pass is a genuine agent failure, no exceptions left.
+
+Adapter fixes: `be34ca8` (dedicated venv), `04b17d2` (Python 3.11 via uv for
+old-python images — qemu-alpine 3.9, mteb 3.10).
+
 ## Breakdown
 
 | Outcome | Count | Notes |
@@ -30,20 +50,20 @@ typically in the 30s. Norn lands mid-pack on its first external run.
 | — of which agent crashed | 1 | `pytorch-model-recovery` (norn exit 2) |
 | Install-failed | 8 | **adapter bug, not agent** — see below |
 
-**Adjusted for the adapter bug: 32/81 = 39.5%** on tasks where Norn actually
-installed and ran.
+On the first run, adjusted for the (now-fixed) install bug it was 32/81 =
+39.5%; after fixing install so all 89 run, it is **32/89 = 36.0%** — the
+install-recovered tasks all fail on merits, so the honest denominator is 89.
 
-## Adapter bug (actionable)
+## Adapter bug (fixed)
 
-8 tasks never ran Norn at all — the in-container `pip install -r
-/opt/requirements.txt` failed (`build-pmars`, `install-windows-3-11`,
-`mailman`, `mteb-leaderboard`, `mteb-retrieve`, `qemu-alpine-ssh`,
-`qemu-startup`, `winning-avg-corewars`). The `uv export`-generated
-requirements file is rejected by these task images' pip (usage error /
-non-zero exit). These count as reward 0 in the official number but reflect an
-adapter packaging issue, not agent capability. Fix candidates: pin
-`pip`/`setuptools` before install, or vendor a wheelhouse instead of a
-resolve-at-install requirements file.
+8 tasks never ran Norn on the first run — the in-container install failed for
+three distinct reasons across images: pip too old for
+`--break-system-packages`; Debian-owned packages that can't be uninstalled
+for upgrade (urllib3 RECORD missing); and Python 3.9/3.10 images where Norn's
+`>=3.11` deps can't resolve. Fixed by provisioning a standalone CPython 3.11
+via `uv` into a dedicated `/opt/norn-venv` (commits `be34ca8`, `04b17d2`). All 8
+now install and run; none pass the task, so the fix cleaned the measurement
+rather than raising the score.
 
 ## What passed vs failed
 
