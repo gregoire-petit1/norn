@@ -92,7 +92,7 @@ class NornAgent(BaseInstalledAgent):
             command=(
                 "apt-get update && "
                 "apt-get install -y --no-install-recommends "
-                "python3 python3-pip python3-venv git"
+                "git curl ca-certificates"
             ),
             env={"DEBIAN_FRONTEND": "noninteractive"},
         )
@@ -128,20 +128,24 @@ class NornAgent(BaseInstalledAgent):
         finally:
             requirements_path.unlink(missing_ok=True)
 
-        # Install into a dedicated venv rather than the system interpreter.
-        # Two task images broke the old `pip install --break-system-packages`
-        # path: some ship a pip too old to know that flag (`no such option`),
-        # and others fail to upgrade Debian-owned packages
-        # (`Cannot uninstall urllib3 ... RECORD file not found`). A fresh venv
-        # with an upgraded pip sidesteps both. Symlink `norn` onto PATH so
-        # `exec_as_agent` and `norn version` resolve it.
+        # Provision Python 3.11 with uv and install into a dedicated venv,
+        # rather than relying on the image's system interpreter. Task images
+        # vary wildly: some ship Python 3.9/3.10 (Norn needs >=3.11 —
+        # `anyio requires >=3.10`, others >=3.11), some a pip too old for
+        # `--break-system-packages`, some Debian-owned packages that can't be
+        # upgraded in place. uv fetches a standalone CPython 3.11, sidestepping
+        # all three. Symlink `norn` onto PATH so `exec_as_agent` / `norn
+        # version` resolve it.
         await self.exec_as_root(
             environment,
             command=(
-                "python3 -m venv /opt/norn-venv && "
-                "/opt/norn-venv/bin/pip install --upgrade pip && "
-                "/opt/norn-venv/bin/pip install -r /opt/requirements.txt && "
-                "/opt/norn-venv/bin/pip install --no-deps -e /opt/norn-src && "
+                "curl -LsSf https://astral.sh/uv/install.sh | sh && "
+                'export PATH="/root/.local/bin:$PATH" && '
+                "uv venv --python 3.11 /opt/norn-venv && "
+                "uv pip install --python /opt/norn-venv/bin/python "
+                "-r /opt/requirements.txt && "
+                "uv pip install --python /opt/norn-venv/bin/python "
+                "--no-deps -e /opt/norn-src && "
                 "ln -sf /opt/norn-venv/bin/norn /usr/local/bin/norn"
             ),
         )
