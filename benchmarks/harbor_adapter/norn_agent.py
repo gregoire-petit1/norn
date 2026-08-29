@@ -73,6 +73,34 @@ _CONFIG_OVERRIDES = {
 }
 
 
+def _config_overrides() -> dict:
+    """Base overrides, plus wave-2 long-horizon flags when NORN_WAVE2=1.
+
+    Kept opt-in so a baseline run (flags off) and a wave-2 run are a clean
+    A/B on the same dataset/model. Promote to always-on once validated.
+    """
+    import copy
+    import os
+
+    overrides = copy.deepcopy(_CONFIG_OVERRIDES)
+    if os.environ.get("NORN_WAVE2") == "1":
+        # A1 scratchpad + C auto_plan + A3 adaptive rounds
+        overrides["agent"].update(
+            {
+                "task_notes": True,
+                "auto_plan": True,
+                "auto_plan_min_chars": 0,
+                "adaptive_rounds": True,
+                "max_round_extensions": 1,
+            }
+        )
+        # B AXI token-efficient tool outputs
+        overrides["flags"]["axi_output"] = True
+        # A2 sliding window (extractive summary — free, deterministic)
+        overrides["context"] = {"sliding_window": True}
+    return overrides
+
+
 class NornAgent(BaseInstalledAgent):
     """Runs Norn inside the harbor task container as an installed CLI agent."""
 
@@ -164,7 +192,7 @@ class NornAgent(BaseInstalledAgent):
         context: AgentContext,
     ) -> None:
         escaped_instruction = shlex.quote(instruction)
-        env = {"NORN_CONFIG_OVERRIDES": json.dumps(_CONFIG_OVERRIDES)}
+        env = {"NORN_CONFIG_OVERRIDES": json.dumps(_config_overrides())}
 
         await self.exec_as_agent(
             environment,
