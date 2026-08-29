@@ -26,6 +26,7 @@ from norn.tools.base import ToolContext, ToolResult
 if TYPE_CHECKING:
     from norn.core.context import ContextManager
     from norn.core.llm import LLMProvider
+    from norn.core.task_notes import TaskNotes
     from norn.core.tool_selector import ToolSelector
     from norn.memory.session_logger import SessionLogger
     from norn.memory.store import MemoryStore
@@ -67,6 +68,7 @@ class AgentLoop:
         tool_selector: ToolSelector | None = None,
         stable_prompt: bool = False,
         thread_invariants: bool = True,
+        task_notes: TaskNotes | None = None,
     ) -> None:
         self.llm = llm
         self.registry = registry
@@ -123,6 +125,8 @@ class AgentLoop:
         # W1.2 (SOTA v2): append-only thread invariant. Fail-open in
         # production, fail-hard under NORN_STRICT_INVARIANTS=1 (tests/CI).
         self._ledger: ThreadLedger | None = ThreadLedger() if thread_invariants else None
+        # A1 (wave 2): persistent task scratchpad, injected each round.
+        self._task_notes = task_notes
 
     def _build_system_prompt(self) -> str:
         """Build system prompt with optional memory + lessons injection."""
@@ -224,6 +228,23 @@ class AgentLoop:
             with contextlib.suppress(Exception):
                 _log.error(EventName.INVARIANT_VIOLATION, violations=violations)
 
+    def _inject_task_notes(self, messages: list[Message]) -> list[Message]:
+        """Insert the task scratchpad as a SYSTEM message after the prefix.
+
+        A1 (wave 2): rendered from a file, so it survives sliding-window
+        eviction. SYSTEM role → exempt from ThreadLedger.verify_derivation;
+        placed after messages[0] so it never touches the prompt-cache
+        breakpoint. No-op when notes are disabled or empty.
+        """
+        if self._task_notes is None:
+            return messages
+        rendered = self._task_notes.render()
+        if not rendered:
+            return messages
+        note = Message(role=Role.SYSTEM, content=rendered)
+        insert_at = 1 if messages and messages[0].role == Role.SYSTEM else 0
+        return [*messages[:insert_at], note, *messages[insert_at:]]
+
     def _post_turn_hook(self, messages: list[Message], final_content: str | None) -> None:
         """Log failure patterns after a turn completes. Fail-open."""
         self.last_failure_patterns = self._detect_failure_patterns(messages, final_content)
@@ -262,10 +283,12 @@ class AgentLoop:
         for _round in range(self._max_tool_rounds):
             self._turn_budget.reset()
 
-            self._check_invariants(messages)
+            # Re-render task notes each round so mid-run updates are seen.
+            call_messages = self._inject_task_notes(messages)
+            self._check_invariants(call_messages)
             response = await self.llm.complete(
-                messages=messages,
-                tools=self._get_tools_for_turn(messages),
+                messages=call_messages,
+                tools=self._get_tools_for_turn(call_messages),
             )
 
             if not response.has_tool_calls:
@@ -347,10 +370,12 @@ class AgentLoop:
             accumulated_tool_calls: list[ToolCall] = []
             final_usage = None
 
-            self._check_invariants(messages)
+            # Re-render task notes each round so mid-run updates are seen.
+            call_messages = self._inject_task_notes(messages)
+            self._check_invariants(call_messages)
             async for chunk in self.llm.stream(
-                messages=messages,
-                tools=self._get_tools_for_turn(messages),
+                messages=call_messages,
+                tools=self._get_tools_for_turn(call_messages),
             ):
                 if chunk.content:
                     accumulated_content += chunk.content

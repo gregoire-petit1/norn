@@ -93,12 +93,25 @@ def _resolve_vision_model(config: NornConfig) -> tuple[str, str | None]:
     return prefixed_model_id(config.llm.provider, config.llm.model), config.llm.api_base
 
 
+def _build_task_notes(config: NornConfig):
+    """Build a TaskNotes instance when the flag is on (wave 2 A1), else None."""
+    if not config.agent.task_notes:
+        return None
+    from norn.core.task_notes import TaskNotes
+
+    path = Path(config.agent.task_notes_path)
+    if not path.is_absolute():
+        path = Path.cwd() / path
+    return TaskNotes(path, max_chars=config.agent.task_notes_max_chars)
+
+
 def _build_registry(
     flag_registry: FeatureFlagRegistry | None = None,
     *,
     vision_model: str | None = None,
     vision_api_base: str | None = None,
     config: NornConfig | None = None,
+    task_notes=None,
 ) -> ToolRegistry:
     """Build the default tool registry."""
     registry = ToolRegistry(flag_registry=flag_registry)
@@ -146,6 +159,11 @@ def _build_registry(
             ImageReadTool(model=vision_model, api_base=vision_api_base),
             feature_flag="vision_tools",
         )
+    # Task notes tool (wave 2 A1): only registered when the scratchpad is on.
+    if task_notes is not None:
+        from norn.tools.task_notes_tool import TaskNotesTool
+
+        registry.register(TaskNotesTool(task_notes))
     return registry
 
 
@@ -386,11 +404,13 @@ def chat(
         _build_provider(config, model_override=model), config, record
     )
     _vision_model, _vision_api_base = _resolve_vision_model(config)
+    task_notes = _build_task_notes(config)
     registry = _build_registry(
         flag_registry,
         vision_model=_vision_model,
         vision_api_base=_vision_api_base,
         config=config,
+        task_notes=task_notes,
     )
     # Load MCP adapters and inject into registry
     for adapter in _load_mcp_adapters(config, flag_registry):
@@ -421,6 +441,7 @@ def chat(
         repo_map_exclude=config.agent.repo_map_exclude,
         context_manager=context_manager,
         tool_selector=tool_selector,
+        task_notes=task_notes,
     )
 
     cmd_registry = build_default_registry()
@@ -513,11 +534,13 @@ def run(
         _build_provider(config, model_override=model), config, record
     )
     _vision_model, _vision_api_base = _resolve_vision_model(config)
+    task_notes = _build_task_notes(config)
     registry = _build_registry(
         flag_registry,
         vision_model=_vision_model,
         vision_api_base=_vision_api_base,
         config=config,
+        task_notes=task_notes,
     )
     # Load MCP adapters and inject into registry
     for adapter in _load_mcp_adapters(config, flag_registry):
@@ -548,6 +571,7 @@ def run(
         repo_map_exclude=config.agent.repo_map_exclude,
         context_manager=context_manager,
         tool_selector=tool_selector,
+        task_notes=task_notes,
     )
 
     async def _run_once() -> None:

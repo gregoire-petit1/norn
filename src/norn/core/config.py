@@ -137,6 +137,10 @@ class AgentConfig(BaseModel):
     # W1.2 (SOTA v2): append-only thread invariant (fail-open in production,
     # fail-hard under NORN_STRICT_INVARIANTS=1).
     thread_invariants: bool = True
+    # A1 (wave 2): persistent task scratchpad for long-horizon runs.
+    task_notes: bool = False
+    task_notes_path: str = ".norn/task_notes.md"
+    task_notes_max_chars: int = 4000
     max_tool_result_chars: int = 8000
     max_turn_output_chars: int = 30000  # Per-turn budget across all tool calls
     env_bootstrap: bool = True  # Phase 10: inject environment snapshot
