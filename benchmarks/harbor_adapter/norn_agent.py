@@ -128,11 +128,21 @@ class NornAgent(BaseInstalledAgent):
         finally:
             requirements_path.unlink(missing_ok=True)
 
+        # Install into a dedicated venv rather than the system interpreter.
+        # Two task images broke the old `pip install --break-system-packages`
+        # path: some ship a pip too old to know that flag (`no such option`),
+        # and others fail to upgrade Debian-owned packages
+        # (`Cannot uninstall urllib3 ... RECORD file not found`). A fresh venv
+        # with an upgraded pip sidesteps both. Symlink `norn` onto PATH so
+        # `exec_as_agent` and `norn version` resolve it.
         await self.exec_as_root(
             environment,
             command=(
-                "pip install --break-system-packages -r /opt/requirements.txt && "
-                "pip install --break-system-packages --no-deps -e /opt/norn-src"
+                "python3 -m venv /opt/norn-venv && "
+                "/opt/norn-venv/bin/pip install --upgrade pip && "
+                "/opt/norn-venv/bin/pip install -r /opt/requirements.txt && "
+                "/opt/norn-venv/bin/pip install --no-deps -e /opt/norn-src && "
+                "ln -sf /opt/norn-venv/bin/norn /usr/local/bin/norn"
             ),
         )
 
