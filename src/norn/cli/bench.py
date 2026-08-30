@@ -217,7 +217,12 @@ def _collect_session_metrics(cfg, result) -> None:
     """
     from datetime import UTC, datetime
 
-    from benchmarks.runner.metrics import count_by_tool, count_events, load_session_events
+    from benchmarks.runner.metrics import (
+        count_by_tool,
+        count_events,
+        load_session_events,
+        sum_field,
+    )
 
     try:
         sid = (Path.home() / ".norn" / "state" / "last_session").read_text().strip()
@@ -226,6 +231,11 @@ def _collect_session_metrics(cfg, result) -> None:
         events = load_session_events(log_path, sid)
         result.tool_counts = count_by_tool(events)
         result.llm_calls = count_events(events, "llm.complete")
+        llm_events = [e for e in events if e.get("event") == "llm.complete"]
+        result.prompt_tokens = int(sum_field(llm_events, "prompt_tokens"))
+        result.completion_tokens = int(sum_field(llm_events, "completion_tokens"))
+        sources = {e.get("token_source") for e in llm_events if e.get("token_source")}
+        result.token_source = "mixed" if len(sources) > 1 else next(iter(sources), "")
     except Exception:
         pass
 

@@ -95,19 +95,34 @@ def render_metrics_section(report: RunReport) -> str:
     Returns "" when no result carries metrics, so reports produced by
     runs without session-metrics extraction are unchanged.
     """
-    with_metrics = [r for r in report.results if r.tool_counts or r.llm_calls]
+    with_metrics = [
+        r for r in report.results if r.tool_counts or r.llm_calls or r.prompt_tokens
+    ]
     if not with_metrics:
         return ""
     lines = [
         "## Metrics",
         "",
-        "| Task ID | LLM calls | Tool calls |",
-        "|---------|-----------|------------|",
+        "| Task ID | LLM calls | Tokens (in/out) | Tool calls |",
+        "|---------|-----------|-----------------|------------|",
     ]
     for r in with_metrics:
         tools = ", ".join(f"{name}×{n}" for name, n in sorted(r.tool_counts.items())) or "-"
-        lines.append(f"| {r.task_id} | {r.llm_calls} | {tools} |")
+        toks = f"{r.prompt_tokens}/{r.completion_tokens}" if r.prompt_tokens else "-"
+        lines.append(f"| {r.task_id} | {r.llm_calls} | {toks} | {tools} |")
     lines.append("")
+
+    # Headline efficiency metric: the harness literature optimises
+    # tokens-per-SOLVED-task (harness choice moves it ~40x; the model ~1.3x).
+    total_tokens = sum(r.prompt_tokens + r.completion_tokens for r in with_metrics)
+    if total_tokens:
+        solved = sum(1 for r in report.results if r.success)
+        sources = {r.token_source for r in with_metrics if r.token_source}
+        origin = "mixed" if len(sources) > 1 else next(iter(sources), "unknown")
+        per_solved = f"{total_tokens / solved:,.0f}" if solved else "n/a (0 solved)"
+        lines.append(f"- **Tokens per solved task:** {per_solved}")
+        lines.append(f"- **Total tokens:** {total_tokens:,} (source: {origin})")
+        lines.append("")
     return "\n".join(lines)
 
 

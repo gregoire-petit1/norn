@@ -102,6 +102,11 @@ class TaskResult(BaseModel):
     # from the JSONL observability logs. Empty when unavailable (e.g. Docker).
     tool_counts: dict[str, int] = Field(default_factory=dict)
     llm_calls: int = 0
+    # Wave 3 (#1): token accounting. `token_source` is "provider" (measured),
+    # "local" (tokenizer estimate) or "" (unknown) — never conflate them.
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    token_source: str = ""
 
     @classmethod
     def timeout(cls, task: TaskDef, trace: ExecutionTrace) -> TaskResult:

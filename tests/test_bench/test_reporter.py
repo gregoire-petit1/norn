@@ -133,3 +133,40 @@ def test_metrics_section_rendered_only_with_metrics():
     assert "bash×3" in section
     assert "| t1 | 4 |" in section
     assert "## Metrics" in render_markdown_report(with_metrics)
+
+
+def test_tokens_per_solved_task_headline():
+    """Wave 3 (#1): the efficiency metric the harness literature optimises."""
+    from benchmarks.runner.models import RunReport, TaskResult
+    from benchmarks.runner.reporter import render_metrics_section
+
+    rep = RunReport(
+        results=[
+            TaskResult(
+                task_id="a", success=True, llm_calls=3,
+                prompt_tokens=9000, completion_tokens=1000, token_source="local",
+            ),
+            TaskResult(
+                task_id="b", success=False, llm_calls=2,
+                prompt_tokens=4000, completion_tokens=1000, token_source="local",
+            ),
+        ]
+    )
+    out = render_metrics_section(rep)
+    # 15000 total tokens / 1 solved
+    assert "Tokens per solved task:** 15,000" in out
+    assert "source: local" in out
+    assert "9000/1000" in out
+
+
+def test_metrics_section_flags_mixed_token_sources():
+    from benchmarks.runner.models import RunReport, TaskResult
+    from benchmarks.runner.reporter import render_metrics_section
+
+    rep = RunReport(
+        results=[
+            TaskResult(task_id="a", success=True, prompt_tokens=10, token_source="provider"),
+            TaskResult(task_id="b", success=True, prompt_tokens=10, token_source="local"),
+        ]
+    )
+    assert "source: mixed" in render_metrics_section(rep)

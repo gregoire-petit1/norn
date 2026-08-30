@@ -142,10 +142,10 @@ async def test_llm_provider_handles_missing_usage(log_dir: Path) -> None:
     fake_response.usage = None  # provider didn't report usage
 
     with patch("litellm.acompletion", new=AsyncMock(return_value=fake_response)):
-        provider = LiteLLMProvider(model="ollama/llama3")
+        # count_tokens_locally=False keeps the original contract: zeroes, no crash.
+        provider = LiteLLMProvider(model="ollama/llama3", count_tokens_locally=False)
         result = await provider.complete(messages=[Message(role=Role.USER, content="hi")])
 
-    # No crash, zeroed tokens.
     assert result.usage is not None
     assert result.usage.prompt_tokens == 0
     assert result.usage.completion_tokens == 0
@@ -158,6 +158,29 @@ async def test_llm_provider_handles_missing_usage(log_dir: Path) -> None:
     assert ev["prompt_tokens"] == 0
     assert ev["completion_tokens"] == 0
     assert ev["total_tokens"] == 0
+    assert ev["token_source"] == "unavailable"
+
+
+@pytest.mark.asyncio
+async def test_llm_provider_estimates_usage_locally(log_dir: Path) -> None:
+    """Wave 3 (#1): missing provider usage falls back to a tagged local estimate."""
+    from norn.core.llm import LiteLLMProvider
+    from norn.core.models import Message, Role
+
+    fake_response = MagicMock()
+    fake_response.choices = [
+        MagicMock(message=MagicMock(content="hi", tool_calls=None), finish_reason="stop"),
+    ]
+    fake_response.usage = None
+
+    with patch("litellm.acompletion", new=AsyncMock(return_value=fake_response)):
+        provider = LiteLLMProvider(model="github_copilot/claude-sonnet-4.5")
+        result = await provider.complete(messages=[Message(role=Role.USER, content="hi")])
+
+    assert result.usage.total_tokens > 0
+    ev = [e for e in _events(_today_file(log_dir)) if e.get("event") == "llm.complete"][0]
+    assert ev["token_source"] == "local"
+    assert ev["total_tokens"] > 0
 
 
 @pytest.mark.asyncio

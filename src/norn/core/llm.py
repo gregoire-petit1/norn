@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import random
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
@@ -107,6 +108,58 @@ def _token_usage_from_provider(usage: Any) -> TokenUsage:
         total_tokens=getattr(usage, "total_tokens", 0) or 0,
         cache_read_tokens=getattr(usage, "cache_read_input_tokens", 0) or 0,
         cache_creation_tokens=getattr(usage, "cache_creation_input_tokens", 0) or 0,
+    )
+
+
+def _local_token_usage(
+    model: str,
+    request_messages: list[dict],
+    tools: list[dict] | None,
+    content: str | None,
+    tool_calls: list[ToolCall] | None,
+) -> TokenUsage | None:
+    """Best-effort local token count for providers that report no usage.
+
+    Wave 3 (#1 instrumentation): tokens-per-solved-task is the metric the
+    harness literature optimises, and some providers (github_copilot) return
+    no usage at all — leaving us blind. litellm's tokenizer gives a
+    provider-independent estimate. It is an ESTIMATE: it counts the messages
+    and the serialized tool schemas, not provider-side framing overhead, and
+    it cannot know cache hits. Events tag the origin via ``token_source`` so
+    measured and estimated numbers are never conflated.
+
+    Note: litellm falls back to a generic tokenizer for models it has no
+    exact encoding for (our Copilot ids included), so counts are comparable
+    ACROSS OUR OWN RUNS — which is what harness A/B needs — but are not the
+    provider's billing truth.
+
+    Returns None when the tokenizer is unavailable — callers then keep zeros
+    rather than inventing a number.
+    """
+    try:
+        prompt = int(litellm.token_counter(model=model, messages=request_messages))
+    except Exception:
+        return None
+
+    if tools:
+        with contextlib.suppress(Exception):
+            prompt += int(litellm.token_counter(model=model, text=json.dumps(tools)))
+
+    completion_text = content or ""
+    if tool_calls:
+        with contextlib.suppress(Exception):
+            completion_text += json.dumps(
+                [{"name": tc.name, "arguments": tc.arguments} for tc in tool_calls]
+            )
+    completion = 0
+    if completion_text:
+        with contextlib.suppress(Exception):
+            completion = int(litellm.token_counter(model=model, text=completion_text))
+
+    return TokenUsage(
+        prompt_tokens=prompt,
+        completion_tokens=completion,
+        total_tokens=prompt + completion,
     )
 
 
@@ -305,6 +358,7 @@ class LiteLLMProvider:
         max_retries: int = 3,
         retry_backoff: float = 2.0,
         request_timeout: float | None = 90.0,
+        count_tokens_locally: bool = True,
     ) -> None:
         self.model = model
         self.api_base = api_base
@@ -320,6 +374,10 @@ class LiteLLMProvider:
         self._max_retries = max_retries
         self._retry_backoff = retry_backoff
         self._request_timeout = request_timeout
+        # Wave 3 (#1): fall back to a local tokenizer when the provider
+        # reports no usage (e.g. github_copilot), so tokens-per-solved-task
+        # stays measurable. Estimated numbers are tagged ``token_source``.
+        self._count_tokens_locally = count_tokens_locally
         # Suppress litellm logging noise
         litellm.suppress_debug_info = True
         _stdlib_logging.getLogger("LiteLLM").setLevel(_stdlib_logging.WARNING)
@@ -404,9 +462,23 @@ class LiteLLMProvider:
             # - ``response.usage`` may be ``None`` (some Ollama configs).
             choice = response.choices[0] if response.choices else None
             usage = getattr(response, "usage", None)
+            content_preview = choice.message.content if choice is not None else None
+            tool_calls_preview = (
+                _parse_tool_calls(choice.message.tool_calls) if choice is not None else []
+            )
 
             token_usage = _token_usage_from_provider(usage)
+            token_source = "provider" if token_usage.total_tokens else "unavailable"
+            if self._count_tokens_locally and not token_usage.total_tokens:
+                local = _local_token_usage(
+                    self.model, kwargs["messages"], kwargs.get("tools"), content_preview,
+                    tool_calls_preview,
+                )
+                if local is not None:
+                    token_usage = local
+                    token_source = "local"
 
+            event["token_source"] = token_source
             event["prompt_tokens"] = token_usage.prompt_tokens
             event["completion_tokens"] = token_usage.completion_tokens
             event["total_tokens"] = token_usage.total_tokens
@@ -416,8 +488,8 @@ class LiteLLMProvider:
                 getattr(choice, "finish_reason", None) if choice is not None else None
             )
 
-            content = choice.message.content if choice is not None else None
-            tool_calls = _parse_tool_calls(choice.message.tool_calls) if choice is not None else []
+            content = content_preview
+            tool_calls = tool_calls_preview
             _elapsed_ms = int((__import__("time").monotonic() - _start) * 1000)
             return LLMResponse(
                 content=content,
@@ -499,6 +571,9 @@ class LiteLLMProvider:
             # Accumulator for fragmented tool calls (keyed by index)
             tc_accum: dict[int, dict] = {}
             final_usage = None
+            # Wave 3 (#1): keep the streamed text so the local tokenizer can
+            # count completion tokens when the provider reports no usage.
+            accumulated_content = ""
 
             async for chunk in response:
                 choice = chunk.choices[0] if chunk.choices else None
@@ -526,6 +601,8 @@ class LiteLLMProvider:
                     final_usage = chunk.usage
 
                 content = delta.content if hasattr(delta, "content") else None
+                if content:
+                    accumulated_content += content
                 done = choice.finish_reason is not None
 
                 if done:
@@ -543,9 +620,24 @@ class LiteLLMProvider:
                                 ToolCall(id=tc["id"], name=tc["name"], arguments=args)
                             )
 
-                    usage = None
-                    if final_usage:
-                        usage = _token_usage_from_provider(final_usage)
+                    usage = _token_usage_from_provider(final_usage) if final_usage else None
+                    token_source = (
+                        "provider" if usage and usage.total_tokens else "unavailable"
+                    )
+                    if self._count_tokens_locally and not (usage and usage.total_tokens):
+                        local = _local_token_usage(
+                            self.model,
+                            kwargs["messages"],
+                            kwargs.get("tools"),
+                            accumulated_content,
+                            assembled_calls,
+                        )
+                        if local is not None:
+                            usage = local
+                            token_source = "local"
+
+                    event["token_source"] = token_source
+                    if usage is not None:
                         event["prompt_tokens"] = usage.prompt_tokens
                         event["completion_tokens"] = usage.completion_tokens
                         event["total_tokens"] = usage.total_tokens
