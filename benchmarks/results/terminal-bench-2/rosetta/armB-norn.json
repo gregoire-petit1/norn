@@ -1,0 +1,127 @@
+{
+  "arm": "armB-norn",
+  "model": "github_copilot/gpt-5.3-codex",
+  "results": {
+    "break-filter-js-from-html": {
+      "duration_s": 180,
+      "exception": null,
+      "llm_calls_est": 8,
+      "reward": 0.0
+    },
+    "circuit-fibsqrt": {
+      "duration_s": 337,
+      "exception": null,
+      "llm_calls_est": 7,
+      "reward": 0.0
+    },
+    "count-dataset-tokens": {
+      "duration_s": 488,
+      "exception": null,
+      "llm_calls_est": 24,
+      "reward": 1.0
+    },
+    "dna-insert": {
+      "duration_s": 282,
+      "exception": null,
+      "llm_calls_est": 24,
+      "reward": 0.0
+    },
+    "fix-code-vulnerability": {
+      "duration_s": 217,
+      "exception": null,
+      "llm_calls_est": 30,
+      "reward": 1.0
+    },
+    "fix-git": {
+      "duration_s": 165,
+      "exception": null,
+      "llm_calls_est": 14,
+      "reward": 1.0
+    },
+    "git-multibranch": {
+      "duration_s": 297,
+      "exception": null,
+      "llm_calls_est": 11,
+      "reward": 0.0
+    },
+    "headless-terminal": {
+      "duration_s": 172,
+      "exception": null,
+      "llm_calls_est": 12,
+      "reward": 1.0
+    },
+    "kv-store-grpc": {
+      "duration_s": 170,
+      "exception": null,
+      "llm_calls_est": 19,
+      "reward": 1.0
+    },
+    "model-extraction-relu-logits": {
+      "duration_s": 300,
+      "exception": null,
+      "llm_calls_est": 15,
+      "reward": 0.0
+    },
+    "overfull-hbox": {
+      "duration_s": 312,
+      "exception": null,
+      "llm_calls_est": 22,
+      "reward": 0.0
+    },
+    "protein-assembly": {
+      "duration_s": 724,
+      "exception": null,
+      "llm_calls_est": 40,
+      "reward": 0.0
+    },
+    "qemu-alpine-ssh": {
+      "duration_s": 259,
+      "exception": null,
+      "llm_calls_est": 34,
+      "reward": 0.0
+    },
+    "qemu-startup": {
+      "duration_s": 238,
+      "exception": null,
+      "llm_calls_est": 20,
+      "reward": 0.0
+    },
+    "query-optimize": {
+      "duration_s": 1894,
+      "exception": "AgentTimeoutError",
+      "llm_calls_est": 14,
+      "reward": null
+    },
+    "raman-fitting": {
+      "duration_s": 670,
+      "exception": null,
+      "llm_calls_est": 27,
+      "reward": 0.0
+    },
+    "reshard-c4-data": {
+      "duration_s": 396,
+      "exception": null,
+      "llm_calls_est": 25,
+      "reward": 1.0
+    },
+    "sqlite-with-gcov": {
+      "duration_s": 249,
+      "exception": null,
+      "llm_calls_est": 13,
+      "reward": 1.0
+    },
+    "torch-tensor-parallelism": {
+      "duration_s": 614,
+      "exception": null,
+      "llm_calls_est": 33,
+      "reward": 0.0
+    },
+    "winning-avg-corewars": {
+      "duration_s": 1222,
+      "exception": null,
+      "llm_calls_est": 24,
+      "reward": 1.0
+    }
+  },
+  "runtime": "colima vz+rosetta"
+}

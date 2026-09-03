@@ -1,0 +1,127 @@
+{
+  "arm": "armA-terminus2",
+  "model": "github_copilot/gpt-5.3-codex",
+  "results": {
+    "break-filter-js-from-html": {
+      "duration_s": 159,
+      "exception": null,
+      "reward": 1.0,
+      "steps": 12
+    },
+    "circuit-fibsqrt": {
+      "duration_s": 201,
+      "exception": null,
+      "reward": 1.0,
+      "steps": 7
+    },
+    "count-dataset-tokens": {
+      "duration_s": 157,
+      "exception": null,
+      "reward": 1.0,
+      "steps": 15
+    },
+    "dna-insert": {
+      "duration_s": 113,
+      "exception": null,
+      "reward": 0.0,
+      "steps": 9
+    },
+    "fix-code-vulnerability": {
+      "duration_s": 127,
+      "exception": null,
+      "reward": 1.0,
+      "steps": 13
+    },
+    "fix-git": {
+      "duration_s": 80,
+      "exception": null,
+      "reward": 1.0,
+      "steps": 9
+    },
+    "git-multibranch": {
+      "duration_s": 127,
+      "exception": null,
+      "reward": 1.0,
+      "steps": 7
+    },
+    "headless-terminal": {
+      "duration_s": 79,
+      "exception": null,
+      "reward": 1.0,
+      "steps": 6
+    },
+    "kv-store-grpc": {
+      "duration_s": 48,
+      "exception": null,
+      "reward": 1.0,
+      "steps": 3
+    },
+    "model-extraction-relu-logits": {
+      "duration_s": 83,
+      "exception": null,
+      "reward": 0.0,
+      "steps": 6
+    },
+    "overfull-hbox": {
+      "duration_s": 186,
+      "exception": null,
+      "reward": 0.0,
+      "steps": 9
+    },
+    "protein-assembly": {
+      "duration_s": 378,
+      "exception": null,
+      "reward": 0.0,
+      "steps": 14
+    },
+    "qemu-alpine-ssh": {
+      "duration_s": 287,
+      "exception": null,
+      "reward": 0.0,
+      "steps": 10
+    },
+    "qemu-startup": {
+      "duration_s": 139,
+      "exception": null,
+      "reward": 1.0,
+      "steps": 11
+    },
+    "query-optimize": {
+      "duration_s": 663,
+      "exception": null,
+      "reward": 0.0,
+      "steps": 24
+    },
+    "raman-fitting": {
+      "duration_s": 153,
+      "exception": null,
+      "reward": 0.0,
+      "steps": 13
+    },
+    "reshard-c4-data": {
+      "duration_s": 326,
+      "exception": null,
+      "reward": 1.0,
+      "steps": 9
+    },
+    "sqlite-with-gcov": {
+      "duration_s": 81,
+      "exception": null,
+      "reward": 1.0,
+      "steps": 8
+    },
+    "torch-tensor-parallelism": {
+      "duration_s": 112,
+      "exception": null,
+      "reward": 0.0,
+      "steps": 3
+    },
+    "winning-avg-corewars": {
+      "duration_s": 248,
+      "exception": null,
+      "reward": 1.0,
+      "steps": 11
+    }
+  },
+  "runtime": "colima vz+rosetta"
+}
