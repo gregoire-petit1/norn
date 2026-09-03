@@ -359,6 +359,7 @@ class LiteLLMProvider:
         retry_backoff: float = 2.0,
         request_timeout: float | None = 90.0,
         count_tokens_locally: bool = True,
+        drop_unsupported_params: bool = True,
     ) -> None:
         self.model = model
         self.api_base = api_base
@@ -378,6 +379,15 @@ class LiteLLMProvider:
         # reports no usage (e.g. github_copilot), so tokens-per-solved-task
         # stays measurable. Estimated numbers are tagged ``token_source``.
         self._count_tokens_locally = count_tokens_locally
+        # Reasoning-model compatibility: the 2026 frontier lineup rejects
+        # params it doesn't support — gpt-5* accepts only temperature=1, and
+        # Norn sends temperature=0.0 everywhere. Without this, every call to
+        # such a model dies with UnsupportedParamsError (observed on
+        # github_copilot/gpt-5.3-codex: 13/13 tb2 trials failed instantly).
+        # litellm.drop_params makes it drop unsupported params instead of
+        # raising, which is the remedy litellm's own error text recommends.
+        if drop_unsupported_params:
+            litellm.drop_params = True
         # Suppress litellm logging noise
         litellm.suppress_debug_info = True
         _stdlib_logging.getLogger("LiteLLM").setLevel(_stdlib_logging.WARNING)

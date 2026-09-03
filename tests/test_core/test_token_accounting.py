@@ -122,3 +122,25 @@ async def test_token_source_logged(tmp_path):
         for h in list(root.handlers):
             h.close()
             root.removeHandler(h)
+
+
+def test_drop_params_enabled_by_default():
+    """Reasoning models (gpt-5*) reject temperature=0.0; litellm must drop it.
+
+    Regression: 13/13 tb2 trials died instantly with UnsupportedParamsError
+    because Norn sends temperature=0.0 to every model.
+    """
+    import norn.core.llm as llm_mod
+
+    llm_mod.litellm.drop_params = False
+    LiteLLMProvider(model="github_copilot/gpt-5.3-codex")
+    assert llm_mod.litellm.drop_params is True
+
+
+def test_drop_params_can_be_disabled():
+    import norn.core.llm as llm_mod
+
+    llm_mod.litellm.drop_params = False
+    LiteLLMProvider(model="x/y", drop_unsupported_params=False)
+    assert llm_mod.litellm.drop_params is False
+    llm_mod.litellm.drop_params = True  # restore for other tests
