@@ -24,6 +24,7 @@ this adapter.
 from __future__ import annotations
 
 import json
+import os
 import shlex
 import subprocess
 import tempfile
@@ -41,6 +42,12 @@ _LITELLM_CONFIG_DIR = Path.home() / ".config" / "litellm"
 # Same router config as benchmarks/runner/bench_run's config_overrides:
 # route everything through GitHub Copilot Enterprise (high rate limits, no
 # session cap) rather than a raw provider API key.
+# Copilot retired claude-sonnet-4.5 (2026-09); the seat now serves a 2026
+# lineup. gpt-5.3-codex is the arm model for the harness-debt A/B because the
+# Scaffold Effect paper publishes Terminus-2 @ gpt-5.3-codex = 64.7% on tb2,
+# giving the run an external reference point. Override with NORN_BENCH_MODEL.
+_BENCH_MODEL = os.environ.get("NORN_BENCH_MODEL", "gpt-5.3-codex")
+
 _CONFIG_OVERRIDES = {
     "permissions": {"mode": "yolo"},
     # Terminal-bench tasks need far more sequential steps than Norn's trivial
@@ -51,21 +58,21 @@ _CONFIG_OVERRIDES = {
     "agent": {"max_tool_rounds": 50, "auto_verify": True, "auto_verify_max_rounds": 2},
     # image_read multimodal: terminal-bench has visual tasks (chess from a
     # rendered board, plots, scanned docs) a text-only agent can't solve.
-    # claude-sonnet-4.5 (router tiers below) is vision-capable.
+    # The bench model (router tiers below) must be vision-capable.
     "flags": {"vision_tools": True},
     "router": {
         "enabled": True,
         "domain_routing": True,
         "tiers": {
-            "fast": {"provider": "github_copilot", "model": "claude-sonnet-4.5", "api_base": None},
+            "fast": {"provider": "github_copilot", "model": _BENCH_MODEL, "api_base": None},
             "standard": {
                 "provider": "github_copilot",
-                "model": "claude-sonnet-4.5",
+                "model": _BENCH_MODEL,
                 "api_base": None,
             },
             "powerful": {
                 "provider": "github_copilot",
-                "model": "claude-sonnet-4.5",
+                "model": _BENCH_MODEL,
                 "api_base": None,
             },
         },
