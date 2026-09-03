@@ -1,0 +1,168 @@
+{
+  "arm": "armC-norn-batchprompt",
+  "change": "prompt: batching rule replaces one-tool-call-per-step (49542b7)",
+  "model": "github_copilot/gpt-5.3-codex",
+  "results": {
+    "break-filter-js-from-html": {
+      "duration_s": 165,
+      "exception": null,
+      "llm_calls": 7,
+      "prompt_tokens_local": 26916,
+      "reward": 0.0,
+      "tool_calls": 6
+    },
+    "circuit-fibsqrt": {
+      "duration_s": 346,
+      "exception": null,
+      "llm_calls": 7,
+      "prompt_tokens_local": 43142,
+      "reward": 0.0,
+      "tool_calls": 5
+    },
+    "count-dataset-tokens": {
+      "duration_s": 195,
+      "exception": null,
+      "llm_calls": 15,
+      "prompt_tokens_local": 92870,
+      "reward": 1.0,
+      "tool_calls": 13
+    },
+    "dna-insert": {
+      "duration_s": 358,
+      "exception": null,
+      "llm_calls": 24,
+      "prompt_tokens_local": 337539,
+      "reward": 0.0,
+      "tool_calls": 21
+    },
+    "fix-code-vulnerability": {
+      "duration_s": 118,
+      "exception": null,
+      "llm_calls": 23,
+      "prompt_tokens_local": 314889,
+      "reward": 1.0,
+      "tool_calls": 21
+    },
+    "fix-git": {
+      "duration_s": 179,
+      "exception": null,
+      "llm_calls": 14,
+      "prompt_tokens_local": 81228,
+      "reward": 1.0,
+      "tool_calls": 12
+    },
+    "git-multibranch": {
+      "duration_s": 246,
+      "exception": null,
+      "llm_calls": 13,
+      "prompt_tokens_local": 90347,
+      "reward": 1.0,
+      "tool_calls": 12
+    },
+    "headless-terminal": {
+      "duration_s": 159,
+      "exception": null,
+      "llm_calls": 7,
+      "prompt_tokens_local": 28402,
+      "reward": 1.0,
+      "tool_calls": 5
+    },
+    "kv-store-grpc": {
+      "duration_s": 161,
+      "exception": null,
+      "llm_calls": 10,
+      "prompt_tokens_local": 47635,
+      "reward": 1.0,
+      "tool_calls": 8
+    },
+    "model-extraction-relu-logits": {
+      "duration_s": 194,
+      "exception": null,
+      "llm_calls": 9,
+      "prompt_tokens_local": 47453,
+      "reward": 0.0,
+      "tool_calls": 6
+    },
+    "overfull-hbox": {
+      "duration_s": 262,
+      "exception": null,
+      "llm_calls": 15,
+      "prompt_tokens_local": 115407,
+      "reward": 0.0,
+      "tool_calls": 16
+    },
+    "protein-assembly": {
+      "duration_s": 460,
+      "exception": null,
+      "llm_calls": 15,
+      "prompt_tokens_local": 137289,
+      "reward": 0.0,
+      "tool_calls": 16
+    },
+    "qemu-alpine-ssh": {
+      "duration_s": 175,
+      "exception": null,
+      "llm_calls": 9,
+      "prompt_tokens_local": 36050,
+      "reward": 0.0,
+      "tool_calls": 6
+    },
+    "qemu-startup": {
+      "duration_s": 178,
+      "exception": null,
+      "llm_calls": 14,
+      "prompt_tokens_local": 56897,
+      "reward": 0.0,
+      "tool_calls": 11
+    },
+    "query-optimize": {
+      "duration_s": 1743,
+      "exception": "AgentTimeoutError",
+      "llm_calls": 8,
+      "prompt_tokens_local": 36671,
+      "reward": 0.0,
+      "tool_calls": 6
+    },
+    "raman-fitting": {
+      "duration_s": 279,
+      "exception": null,
+      "llm_calls": 18,
+      "prompt_tokens_local": 172608,
+      "reward": 0.0,
+      "tool_calls": 16
+    },
+    "reshard-c4-data": {
+      "duration_s": 333,
+      "exception": null,
+      "llm_calls": 12,
+      "prompt_tokens_local": 101985,
+      "reward": 1.0,
+      "tool_calls": 10
+    },
+    "sqlite-with-gcov": {
+      "duration_s": 189,
+      "exception": null,
+      "llm_calls": 10,
+      "prompt_tokens_local": 51966,
+      "reward": 1.0,
+      "tool_calls": 8
+    },
+    "torch-tensor-parallelism": {
+      "duration_s": 572,
+      "exception": null,
+      "llm_calls": 20,
+      "prompt_tokens_local": 204831,
+      "reward": 0.0,
+      "tool_calls": 18
+    },
+    "winning-avg-corewars": {
+      "duration_s": 166,
+      "exception": null,
+      "llm_calls": 11,
+      "prompt_tokens_local": 77224,
+      "reward": 1.0,
+      "tool_calls": 14
+    }
+  },
+  "runtime": "colima vz+rosetta"
+}
