@@ -621,6 +621,14 @@ class AgentLoop:
             "duration_ms": duration_ms,
             "success": result.error is None,
         }
+        # Wave 3: how many shell commands this call carried (bash `commands`
+        # list → len; single `command` → 1). Lets bench analysis measure
+        # batching from events without logging the arguments themselves.
+        cmds = call.arguments.get("commands") if isinstance(call.arguments, dict) else None
+        if isinstance(cmds, list) and cmds:
+            payload["batch_size"] = len(cmds)
+        elif call.name == "bash":
+            payload["batch_size"] = 1
         if result.error is not None:
             payload["error_type"] = result.error_type or "ToolExecutionError"
             payload["error_message"] = result.error

@@ -151,3 +151,42 @@ async def test_max_rounds_message_still_emitted():
     )
     result = await agent.run("go")
     assert result.content == "[Max tool rounds reached]"
+
+
+@pytest.mark.asyncio
+async def test_tool_call_event_carries_batch_size(tmp_path):
+    """Wave 3: tool.call events report how many commands a bash call carried."""
+    import json
+    import logging as _logging
+    from datetime import UTC, datetime
+
+    from norn.core.config import LoggingConfig
+    from norn.observability.logger import init_logging, new_session
+    from norn.tools.bash_tool import BashTool
+
+    init_logging(LoggingConfig(enabled=True, output="file", file_dir=str(tmp_path)))
+    new_session()
+    try:
+        reg = ToolRegistry()
+        reg.register(BashTool())
+        calls = [
+            ToolCall(id="1", name="bash", arguments={"commands": ["echo a", "echo b", "echo c"]}),
+            ToolCall(id="2", name="bash", arguments={"command": "echo single"}),
+        ]
+        llm = AsyncMock()
+        llm.complete = AsyncMock(
+            side_effect=[LLMResponse(content=None, tool_calls=calls), LLMResponse(content="done")]
+        )
+        agent = AgentLoop(
+            llm=llm, registry=reg, cwd=str(tmp_path), env_bootstrap=False, repo_map=False
+        )
+        await agent.run("go")
+        log = tmp_path / f"{datetime.now(UTC).strftime('%Y-%m-%d')}.jsonl"
+        ev = [json.loads(x) for x in log.read_text().splitlines() if x.strip()]
+        sizes = [e.get("batch_size") for e in ev if e.get("event") == "tool.call"]
+        assert sizes == [3, 1]
+    finally:
+        root = _logging.getLogger()
+        for h in list(root.handlers):
+            h.close()
+            root.removeHandler(h)
