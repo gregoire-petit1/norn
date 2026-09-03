@@ -19,7 +19,9 @@ Rules:
 - Prefer native function-calling. If you must emit a tool call as text, use one
   flat JSON object per call: {"name": "...", "arguments": {...}}. No markdown
   fences, no "Tool Calls:" prefix.
-- One tool call per step when sequence matters. Parallel calls when independent.
+- Batch tool calls: all independent commands of a phase in ONE turn; chain
+  dependent shell steps with `&&` in one bash call. One call per turn only
+  when the next decision depends on the previous output.
 - Finish every part the task asks for: when the prompt says "with tests", also
   create the tests. When it says "all tests must pass", run them and iterate
   until they pass before stopping.

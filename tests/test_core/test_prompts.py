@@ -13,8 +13,10 @@ def test_agent_system_prompt_is_compact():
     eyes/ears → use programmatic tools for media" rule (chess-from-image,
     gcode decode). The prompt is prompt-cached, so the per-turn cost is marginal.
     """
-    # Bumped 1600 -> 1800 for the wave-2 A1 task_notes guidance line.
-    assert len(AGENT_SYSTEM_PROMPT) < 1800
+    # Bumped 1600 -> 1800 for the wave-2 A1 task_notes guidance line, then
+    # -> 1900 for the batching rule (replaces 'one tool call per step', which
+    # measured at 2.5x the LLM calls of Terminus-2 for no pass-rate gain).
+    assert len(AGENT_SYSTEM_PROMPT) < 1900
     assert len(AGENT_SYSTEM_PROMPT) > 50  # not empty
 
 
