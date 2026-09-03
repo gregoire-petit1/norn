@@ -50,6 +50,11 @@ _BENCH_MODEL = os.environ.get("NORN_BENCH_MODEL", "gpt-5.3-codex")
 
 _CONFIG_OVERRIDES = {
     "permissions": {"mode": "yolo"},
+    # Ship Norn's per-call JSONL observability logs out of the container:
+    # harbor syncs everything under /logs/agent back to the trial's agent/
+    # dir. Without this the only artifact is norn.txt (console output), and
+    # per-task LLM-call / token / tool analysis is impossible after the fact.
+    "logging": {"file_dir": "/logs/agent/norn-logs", "output": "both"},
     # Terminal-bench tasks need far more sequential steps than Norn's trivial
     # internal suite: observed failures (chess-best-move, overfull-hbox) were
     # cut off mid-work at the old cap of 20 before writing the deliverable.
