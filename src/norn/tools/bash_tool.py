@@ -21,7 +21,13 @@ _log = get_logger(__name__)
 class BashInput(BaseModel):
     """Input for bash command execution."""
 
-    command: str
+    command: str = ""
+    # Wave 3: batch several commands in ONE tool call (one LLM round-trip).
+    # Run sequentially in the same shell, stop at the first non-zero exit,
+    # output returned per command. Terminus-2 gets 3.4 commands per LLM call
+    # this way vs Norn's 1.1 with single-command calls — same tool work, 2.5x
+    # fewer round-trips. When set, `command` is ignored.
+    commands: list[str] | None = None
     # Default sized for compute-heavy steps (builds, solver/engine runs). The
     # old 120s cut off legitimate long analyses mid-task; the model can still
     # raise this per call for known-slow commands.
@@ -37,8 +43,10 @@ class BashTool:
 
     name = "bash"
     description = (
-        "Execute a bash command in the shell. Default timeout 300s; pass a larger "
-        "`timeout` (seconds) for known-slow commands like builds or long computations."
+        "Execute bash in the shell. Prefer `commands` (a list) to run several steps "
+        "in ONE call: they run in order in the same shell, stop at the first failure, "
+        "and each command's output is returned separately. Use `command` for a single "
+        "step. Default timeout 300s; raise `timeout` (seconds) for builds/long runs."
     )
     risk_level = RiskLevel.HIGH
     input_model = BashInput
@@ -136,13 +144,59 @@ class BashTool:
             extra_write_paths=self._extra_write_paths,
         )
 
+    @staticmethod
+    def _compose_batch(commands: list[str], sep: str) -> str:
+        """Join commands into one script: run in order, stop on first failure.
+
+        Each command is followed by a separator line carrying its exit code,
+        so the output can be split back per command. A failing command stops
+        the batch (its rc propagates), matching `&&` semantics without
+        requiring the model to write them.
+        """
+        parts = []
+        for i, cmd in enumerate(commands):
+            parts.append(
+                f"{cmd}\n"
+                f"__norn_brc=$?\n"
+                f"printf '\\n{sep}%d:%d\\n' {i} $__norn_brc\n"
+                f"[ $__norn_brc -ne 0 ] && exit $__norn_brc\n"
+            )
+        return "".join(parts) + "true"
+
+    @staticmethod
+    def _split_batch(output: str, commands: list[str], sep: str) -> str:
+        """Render per-command sections from a batch's combined stdout."""
+        import re as _re
+
+        pattern = _re.compile(rf"\n?{_re.escape(sep)}(\d+):(\d+)\n?")
+        sections = []
+        pos = 0
+        for m in pattern.finditer(output):
+            idx, rc = int(m.group(1)), int(m.group(2))
+            body = output[pos : m.start()].strip("\n")
+            label = commands[idx] if idx < len(commands) else f"#{idx}"
+            status = "ok" if rc == 0 else f"rc={rc}"
+            sections.append(f"$ {label}  [{status}]\n{body}" if body else f"$ {label}  [{status}]")
+            pos = m.end()
+        if len(sections) < len(commands):
+            sections.append(f"({len(commands) - len(sections)} command(s) not run)")
+        return "\n\n".join(sections)
+
     async def execute(self, input: BashInput, ctx: ToolContext) -> ToolResult:
         seq = uuid.uuid4().hex[:8]
         marker = f"__NORN_{seq}__"
+        batch = [c for c in (input.commands or []) if c.strip()]
+        if not batch and not input.command.strip():
+            return ToolResult(
+                error="Provide `command` or a non-empty `commands` list.",
+                error_type=ToolErrorType.INVALID_ARGUMENT.value,
+            )
+        batch_sep = f"__NORN_B{seq}__"
+        body = self._compose_batch(batch, batch_sep) if batch else input.command
         # Preserve exit code before printing the marker so callers can distinguish
         # success from failure. printf avoids locale-dependent echo -e behaviour.
         wrapped = (
-            f"{input.command}\n"
+            f"{body}\n"
             f"__norn_rc=$?\n"
             f"printf '\\n{marker}\\n'\n"
             f"exit $__norn_rc"
@@ -224,10 +278,13 @@ class BashTool:
 
         output = "".join(stdout_parts)
         errors = stderr_bytes.decode("utf-8", errors="replace")
+        if batch:
+            output = self._split_batch(output, batch, batch_sep)
 
         if process.returncode != 0:
+            detail = f"{output}\nSTDERR:\n{errors}" if (batch and errors) else (errors or output)
             return ToolResult(
-                error=f"Exit code {process.returncode}\n{errors or output}",
+                error=f"Exit code {process.returncode}\n{detail}",
                 error_type=ToolErrorType.EXECUTION_ERROR.value,
             )
 
