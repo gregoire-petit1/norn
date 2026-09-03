@@ -1,0 +1,168 @@
+{
+  "arm": "armD-norn-listtool",
+  "change": "batch prompt (49542b7) + bash commands list (e49af8a)",
+  "model": "github_copilot/gpt-5.3-codex",
+  "results": {
+    "break-filter-js-from-html": {
+      "duration_s": 522,
+      "exception": null,
+      "llm_calls": 16,
+      "prompt_tokens_local": 111706,
+      "reward": 1.0,
+      "tool_calls": 16
+    },
+    "circuit-fibsqrt": {
+      "duration_s": 369,
+      "exception": null,
+      "llm_calls": 7,
+      "prompt_tokens_local": 48441,
+      "reward": 0.0,
+      "tool_calls": 5
+    },
+    "count-dataset-tokens": {
+      "duration_s": 200,
+      "exception": null,
+      "llm_calls": 11,
+      "prompt_tokens_local": 53660,
+      "reward": 1.0,
+      "tool_calls": 9
+    },
+    "dna-insert": {
+      "duration_s": 197,
+      "exception": null,
+      "llm_calls": 17,
+      "prompt_tokens_local": 172356,
+      "reward": 0.0,
+      "tool_calls": 15
+    },
+    "fix-code-vulnerability": {
+      "duration_s": 100,
+      "exception": null,
+      "llm_calls": 13,
+      "prompt_tokens_local": 159538,
+      "reward": 1.0,
+      "tool_calls": 13
+    },
+    "fix-git": {
+      "duration_s": 134,
+      "exception": null,
+      "llm_calls": 9,
+      "prompt_tokens_local": 36098,
+      "reward": 1.0,
+      "tool_calls": 10
+    },
+    "git-multibranch": {
+      "duration_s": 370,
+      "exception": null,
+      "llm_calls": 11,
+      "prompt_tokens_local": 100269,
+      "reward": 0.0,
+      "tool_calls": 10
+    },
+    "headless-terminal": {
+      "duration_s": 165,
+      "exception": null,
+      "llm_calls": 6,
+      "prompt_tokens_local": 21304,
+      "reward": 1.0,
+      "tool_calls": 4
+    },
+    "kv-store-grpc": {
+      "duration_s": 191,
+      "exception": null,
+      "llm_calls": 9,
+      "prompt_tokens_local": 44387,
+      "reward": 1.0,
+      "tool_calls": 7
+    },
+    "model-extraction-relu-logits": {
+      "duration_s": 329,
+      "exception": null,
+      "llm_calls": 14,
+      "prompt_tokens_local": 139423,
+      "reward": 0.0,
+      "tool_calls": 12
+    },
+    "overfull-hbox": {
+      "duration_s": 236,
+      "exception": null,
+      "llm_calls": 13,
+      "prompt_tokens_local": 119378,
+      "reward": 0.0,
+      "tool_calls": 13
+    },
+    "protein-assembly": {
+      "duration_s": 149,
+      "exception": null,
+      "llm_calls": 6,
+      "prompt_tokens_local": 20215,
+      "reward": 0.0,
+      "tool_calls": 3
+    },
+    "qemu-alpine-ssh": {
+      "duration_s": 200,
+      "exception": null,
+      "llm_calls": 12,
+      "prompt_tokens_local": 57302,
+      "reward": 0.0,
+      "tool_calls": 9
+    },
+    "qemu-startup": {
+      "duration_s": 336,
+      "exception": null,
+      "llm_calls": 15,
+      "prompt_tokens_local": 69332,
+      "reward": 0.0,
+      "tool_calls": 12
+    },
+    "query-optimize": {
+      "duration_s": 1320,
+      "exception": null,
+      "llm_calls": 8,
+      "prompt_tokens_local": 35129,
+      "reward": 1.0,
+      "tool_calls": 6
+    },
+    "raman-fitting": {
+      "duration_s": 265,
+      "exception": null,
+      "llm_calls": 20,
+      "prompt_tokens_local": 221854,
+      "reward": 0.0,
+      "tool_calls": 18
+    },
+    "reshard-c4-data": {
+      "duration_s": 371,
+      "exception": null,
+      "llm_calls": 14,
+      "prompt_tokens_local": 118453,
+      "reward": 1.0,
+      "tool_calls": 12
+    },
+    "sqlite-with-gcov": {
+      "duration_s": 183,
+      "exception": null,
+      "llm_calls": 9,
+      "prompt_tokens_local": 46388,
+      "reward": 1.0,
+      "tool_calls": 7
+    },
+    "torch-tensor-parallelism": {
+      "duration_s": 451,
+      "exception": null,
+      "llm_calls": 14,
+      "prompt_tokens_local": 64205,
+      "reward": 0.0,
+      "tool_calls": 12
+    },
+    "winning-avg-corewars": {
+      "duration_s": 1429,
+      "exception": null,
+      "llm_calls": 14,
+      "prompt_tokens_local": 120180,
+      "reward": 1.0,
+      "tool_calls": 12
+    }
+  },
+  "runtime": "colima vz+rosetta"
+}
