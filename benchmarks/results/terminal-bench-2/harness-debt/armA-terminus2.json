@@ -1,0 +1,86 @@
+{
+  "arm": "armA-terminus2",
+  "model": "github_copilot/gpt-5.3-codex",
+  "results": {
+    "break-filter-js-from-html": {
+      "exception": null,
+      "reward": 0.0
+    },
+    "circuit-fibsqrt": {
+      "exception": null,
+      "reward": 1.0
+    },
+    "count-dataset-tokens": {
+      "exception": null,
+      "reward": 1.0
+    },
+    "dna-insert": {
+      "exception": null,
+      "reward": 1.0
+    },
+    "fix-code-vulnerability": {
+      "exception": null,
+      "reward": 1.0
+    },
+    "fix-git": {
+      "exception": null,
+      "reward": 1.0
+    },
+    "git-multibranch": {
+      "exception": null,
+      "reward": 1.0
+    },
+    "headless-terminal": {
+      "exception": null,
+      "reward": 1.0
+    },
+    "kv-store-grpc": {
+      "exception": null,
+      "reward": 1.0
+    },
+    "model-extraction-relu-logits": {
+      "exception": null,
+      "reward": 0.0
+    },
+    "overfull-hbox": {
+      "exception": null,
+      "reward": 0.0
+    },
+    "protein-assembly": {
+      "exception": null,
+      "reward": 0.0
+    },
+    "qemu-alpine-ssh": {
+      "exception": "AgentTimeoutError",
+      "reward": 0.0
+    },
+    "qemu-startup": {
+      "exception": "AgentTimeoutError",
+      "reward": 0.0
+    },
+    "query-optimize": {
+      "exception": "VerifierTimeoutError",
+      "reward": null
+    },
+    "raman-fitting": {
+      "exception": null,
+      "reward": 0.0
+    },
+    "reshard-c4-data": {
+      "exception": null,
+      "reward": 1.0
+    },
+    "sqlite-with-gcov": {
+      "exception": null,
+      "reward": 1.0
+    },
+    "torch-tensor-parallelism": {
+      "exception": null,
+      "reward": 0.0
+    },
+    "winning-avg-corewars": {
+      "exception": "AgentTimeoutError",
+      "reward": 0.0
+    }
+  }
+}
