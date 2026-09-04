@@ -1,0 +1,188 @@
+{
+  "arm": "armE-persist",
+  "change": "D + empty-response retry (ed232aa) + adaptive_rounds (f78a9d5)",
+  "model": "github_copilot/gpt-5.3-codex",
+  "results": {
+    "break-filter-js-from-html": {
+      "commands": 27,
+      "duration_s": 1371,
+      "empty_retries": 0,
+      "empty_stops": 0,
+      "exception": "AgentTimeoutError",
+      "llm_calls": 25,
+      "reward": 1.0
+    },
+    "circuit-fibsqrt": {
+      "commands": 9,
+      "duration_s": 712,
+      "empty_retries": 6,
+      "empty_stops": 9,
+      "exception": null,
+      "llm_calls": 16,
+      "reward": 0.0
+    },
+    "count-dataset-tokens": {
+      "commands": 20,
+      "duration_s": 258,
+      "empty_retries": 0,
+      "empty_stops": 0,
+      "exception": null,
+      "llm_calls": 14,
+      "reward": 1.0
+    },
+    "dna-insert": {
+      "commands": 32,
+      "duration_s": 481,
+      "empty_retries": 0,
+      "empty_stops": 0,
+      "exception": null,
+      "llm_calls": 33,
+      "reward": 1.0
+    },
+    "fix-code-vulnerability": {
+      "commands": 9,
+      "duration_s": 136,
+      "empty_retries": 0,
+      "empty_stops": 0,
+      "exception": null,
+      "llm_calls": 20,
+      "reward": 0.0
+    },
+    "fix-git": {
+      "commands": 45,
+      "duration_s": 184,
+      "empty_retries": 0,
+      "empty_stops": 0,
+      "exception": null,
+      "llm_calls": 13,
+      "reward": 1.0
+    },
+    "git-multibranch": {
+      "commands": 109,
+      "duration_s": 375,
+      "empty_retries": 0,
+      "empty_stops": 0,
+      "exception": null,
+      "llm_calls": 30,
+      "reward": 0.0
+    },
+    "headless-terminal": {
+      "commands": 12,
+      "duration_s": 177,
+      "empty_retries": 0,
+      "empty_stops": 0,
+      "exception": null,
+      "llm_calls": 7,
+      "reward": 1.0
+    },
+    "kv-store-grpc": {
+      "commands": 22,
+      "duration_s": 164,
+      "empty_retries": 0,
+      "empty_stops": 0,
+      "exception": null,
+      "llm_calls": 6,
+      "reward": 1.0
+    },
+    "model-extraction-relu-logits": {
+      "commands": 0,
+      "duration_s": 18,
+      "empty_retries": 0,
+      "empty_stops": 0,
+      "exception": "NonZeroAgentExitCodeError",
+      "llm_calls": 0,
+      "reward": null
+    },
+    "overfull-hbox": {
+      "commands": 11,
+      "duration_s": 339,
+      "empty_retries": 0,
+      "empty_stops": 0,
+      "exception": null,
+      "llm_calls": 19,
+      "reward": 0.0
+    },
+    "protein-assembly": {
+      "commands": 20,
+      "duration_s": 493,
+      "empty_retries": 0,
+      "empty_stops": 0,
+      "exception": null,
+      "llm_calls": 25,
+      "reward": 0.0
+    },
+    "qemu-alpine-ssh": {
+      "commands": 29,
+      "duration_s": 222,
+      "empty_retries": 0,
+      "empty_stops": 0,
+      "exception": null,
+      "llm_calls": 14,
+      "reward": 0.0
+    },
+    "qemu-startup": {
+      "commands": 109,
+      "duration_s": 462,
+      "empty_retries": 0,
+      "empty_stops": 0,
+      "exception": null,
+      "llm_calls": 15,
+      "reward": 0.0
+    },
+    "query-optimize": {
+      "commands": 0,
+      "duration_s": 18,
+      "empty_retries": 0,
+      "empty_stops": 0,
+      "exception": "NonZeroAgentExitCodeError",
+      "llm_calls": 0,
+      "reward": null
+    },
+    "raman-fitting": {
+      "commands": 27,
+      "duration_s": 606,
+      "empty_retries": 0,
+      "empty_stops": 0,
+      "exception": null,
+      "llm_calls": 17,
+      "reward": 0.0
+    },
+    "reshard-c4-data": {
+      "commands": 97,
+      "duration_s": 516,
+      "empty_retries": 0,
+      "empty_stops": 0,
+      "exception": null,
+      "llm_calls": 19,
+      "reward": 1.0
+    },
+    "sqlite-with-gcov": {
+      "commands": 75,
+      "duration_s": 268,
+      "empty_retries": 0,
+      "empty_stops": 0,
+      "exception": null,
+      "llm_calls": 11,
+      "reward": 1.0
+    },
+    "torch-tensor-parallelism": {
+      "commands": 42,
+      "duration_s": 313,
+      "empty_retries": 0,
+      "empty_stops": 0,
+      "exception": null,
+      "llm_calls": 15,
+      "reward": 0.0
+    },
+    "winning-avg-corewars": {
+      "commands": 6,
+      "duration_s": 249,
+      "empty_retries": 0,
+      "empty_stops": 0,
+      "exception": null,
+      "llm_calls": 10,
+      "reward": 1.0
+    }
+  },
+  "runtime": "colima vz+rosetta"
+}
