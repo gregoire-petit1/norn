@@ -64,11 +64,9 @@ _CONFIG_OVERRIDES = {
         "max_tool_rounds": 50,
         "auto_verify": True,
         "auto_verify_max_rounds": 2,
-        # Wave 3: extend the round budget when the run is still making
-        # progress, to counter Norn stopping ~1.75x sooner than
-        # Terminus-2 on compute-heavy tasks.
-        "adaptive_rounds": True,
-        "max_round_extensions": 2,
+        # adaptive_rounds tested (arm E) — +30% LLM calls, no pass gain on
+        # this subset, so left OFF. Norn stops early on compute tasks
+        # because it cannot crack them, not because the budget cut it off.
     },
     # image_read multimodal: terminal-bench has visual tasks (chess from a
     # rendered board, plots, scanned docs) a text-only agent can't solve.
