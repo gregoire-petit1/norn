@@ -36,6 +36,16 @@ if TYPE_CHECKING:
 # Callback type: (tool_name, args_summary, duration_ms, success) -> None
 ToolProgressCallback = Callable[[str, str, int, bool], None]
 
+# Wave 3: a reasoning model can return finish_reason=stop with ZERO content and
+# no tool call (observed 3/3 arms on tb2 circuit-fibsqrt, gpt-5.3-codex). Ending
+# the turn there silently abandons the task with nothing produced. Instead we
+# nudge and retry, bounded so a model that is genuinely stuck still terminates.
+EMPTY_RESPONSE_MAX_RETRIES = 2
+EMPTY_RESPONSE_NUDGE = (
+    "Your last reply was empty. Continue the task: call a tool or give your "
+    "final answer. If you are done, state the result explicitly."
+)
+
 
 _log = get_logger(__name__)
 
@@ -324,6 +334,7 @@ class AgentLoop:
         budget = self._max_tool_rounds
         extensions_used = 0
         _round = 0
+        empty_retries = 0
         while _round < budget:
             self._turn_budget.reset()
 
@@ -353,6 +364,18 @@ class AgentLoop:
                             latency_ms=response.latency_ms,
                             model=response.model,
                         )
+
+            # Empty response (no text, no tool call) → nudge and retry, bounded.
+            if not response.has_tool_calls and not (response.content or "").strip():
+                if empty_retries < EMPTY_RESPONSE_MAX_RETRIES:
+                    empty_retries += 1
+                    with contextlib.suppress(Exception):
+                        _log.warning("llm_empty_response_retry", attempt=empty_retries)
+                    nudge = Message(role=Role.USER, content=EMPTY_RESPONSE_NUDGE)
+                    messages.append(nudge)
+                    self.history.append(nudge)
+                    _round += 1
+                    continue
 
             if not response.has_tool_calls:
                 self.history.append(Message(role=Role.ASSISTANT, content=response.content))
@@ -416,6 +439,7 @@ class AgentLoop:
         budget = self._max_tool_rounds
         extensions_used = 0
         _round = 0
+        empty_retries = 0
         while _round < budget:
             self._turn_budget.reset()
             # --- Stream from LLM ---
@@ -453,6 +477,18 @@ class AgentLoop:
                         )
                     tool_calls = extracted
                     accumulated_content = cleaned or ""
+
+            # --- Empty response (no text, no tool call) → nudge and retry ---
+            if not tool_calls and not accumulated_content.strip():
+                if empty_retries < EMPTY_RESPONSE_MAX_RETRIES:
+                    empty_retries += 1
+                    with contextlib.suppress(Exception):
+                        _log.warning("llm_empty_response_retry", attempt=empty_retries)
+                    nudge = Message(role=Role.USER, content=EMPTY_RESPONSE_NUDGE)
+                    messages.append(nudge)
+                    self.history.append(nudge)
+                    _round += 1
+                    continue
 
             # --- No tool calls → turn is done ---
             if not tool_calls:
