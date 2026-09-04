@@ -74,29 +74,35 @@ def test_build_provider_legacy_ignores_model_override():
 # ── CLI --model option ─────────────────────────────────────────────────────
 
 
-def test_chat_help_includes_model_option():
-    result = runner.invoke(app, ["chat", "--help"], env={"COLUMNS": "200"})
-    assert result.exit_code == 0
-    assert "--model" in result.output
+def _command_flags(command_name: str) -> list[str]:
+    """Flags exposed by a CLI sub-command, via click introspection.
+
+    Robust to rich's terminal-width-dependent --help rendering (which
+    truncates the option table in CI's non-tty env), unlike asserting on
+    --help output text.
+    """
+    import click
+    from typer.main import get_command
+
+    group = get_command(app)
+    sub = group.get_command(click.Context(group), command_name)
+    return [opt for param in sub.params for opt in param.opts]
 
 
-def test_run_help_includes_model_option():
-    result = runner.invoke(app, ["run", "--help"], env={"COLUMNS": "200"})
-    assert result.exit_code == 0
-    assert "--model" in result.output
+def test_chat_exposes_model_option():
+    assert "--model" in _command_flags("chat")
 
 
-def test_dream_help_includes_model_option():
-    result = runner.invoke(app, ["dream", "--help"], env={"COLUMNS": "200"})
-    assert result.exit_code == 0
-    assert "--model" in result.output
+def test_run_exposes_model_option():
+    assert "--model" in _command_flags("run")
 
 
-def test_coordinate_help_includes_model_option():
-    result = runner.invoke(app, ["coordinate", "--help"], env={"COLUMNS": "200"})
-    assert result.exit_code == 0
-    assert "--model" in result.output
+def test_dream_exposes_model_option():
+    assert "--model" in _command_flags("dream")
 
+
+def test_coordinate_exposes_model_option():
+    assert "--model" in _command_flags("coordinate")
 
 # ── End-to-end plumbing: --model actually reaches _build_provider ──────────
 
