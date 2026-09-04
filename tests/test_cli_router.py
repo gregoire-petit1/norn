@@ -75,25 +75,25 @@ def test_build_provider_legacy_ignores_model_override():
 
 
 def test_chat_help_includes_model_option():
-    result = runner.invoke(app, ["chat", "--help"])
+    result = runner.invoke(app, ["chat", "--help"], env={"COLUMNS": "200"})
     assert result.exit_code == 0
     assert "--model" in result.output
 
 
 def test_run_help_includes_model_option():
-    result = runner.invoke(app, ["run", "--help"])
+    result = runner.invoke(app, ["run", "--help"], env={"COLUMNS": "200"})
     assert result.exit_code == 0
     assert "--model" in result.output
 
 
 def test_dream_help_includes_model_option():
-    result = runner.invoke(app, ["dream", "--help"])
+    result = runner.invoke(app, ["dream", "--help"], env={"COLUMNS": "200"})
     assert result.exit_code == 0
     assert "--model" in result.output
 
 
 def test_coordinate_help_includes_model_option():
-    result = runner.invoke(app, ["coordinate", "--help"])
+    result = runner.invoke(app, ["coordinate", "--help"], env={"COLUMNS": "200"})
     assert result.exit_code == 0
     assert "--model" in result.output
 
