@@ -237,7 +237,7 @@ class BashTool:
             while True:
                 remaining = deadline - loop.time()
                 if remaining <= 0:
-                    raise asyncio.TimeoutError
+                    raise TimeoutError
                 line_bytes = await asyncio.wait_for(
                     process.stdout.readline(),  # type: ignore[union-attr]
                     timeout=remaining,
@@ -249,7 +249,7 @@ class BashTool:
                 if marker in line:
                     break
                 stdout_parts.append(line)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             # Reap the subprocess transport WITHIN the running loop. Skipping
             # `await process.wait()` here leaves the transport unreaped; its
             # __del__ then fires after the event loop has closed and raises
@@ -272,7 +272,7 @@ class BashTool:
         # Drain remaining stderr (fast: process is done by the time marker is printed).
         try:
             stderr_bytes = await asyncio.wait_for(stderr_task, timeout=5.0)
-        except (asyncio.TimeoutError, asyncio.CancelledError):
+        except (TimeoutError, asyncio.CancelledError):
             stderr_bytes = b""
         await process.wait()
 

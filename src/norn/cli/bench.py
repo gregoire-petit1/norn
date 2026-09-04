@@ -74,6 +74,7 @@ def bench_validate(
     """Validate all task.yaml files."""
     _ensure_benchmarks_importable()
     import yaml as _yaml
+
     from benchmarks.runner.models import TaskDef
 
     td = Path(tasks_dir) if tasks_dir else _default_tasks_dir()

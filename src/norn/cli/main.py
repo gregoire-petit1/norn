@@ -12,11 +12,10 @@ from dotenv import load_dotenv
 load_dotenv()
 
 import typer
-from rich.console import Console
-from rich.prompt import Confirm
-
 from prompt_toolkit import PromptSession
 from prompt_toolkit.key_binding import KeyBindings
+from rich.console import Console
+from rich.prompt import Confirm
 
 from norn.cli.banner import print_banner
 from norn.cli.bench import bench_app
@@ -39,6 +38,7 @@ from norn.permissions.classifier import RiskClassifier
 
 if TYPE_CHECKING:
     from norn.core.llm import LiteLLMProvider
+    from norn.core.models import LLMResponse
     from norn.permissions.models import PermissionRequest
 
 from norn.memory.models import MemoryConfig

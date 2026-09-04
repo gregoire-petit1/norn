@@ -6,7 +6,7 @@ Extracts function/class bodies (not just signatures) for embedding + BM25 indexi
 from __future__ import annotations
 
 import ast
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 
 _PYTHON_EXTS = {".py"}
@@ -28,7 +28,9 @@ class CodeChunk:
 
     @property
     def id(self) -> str:
-        return f"{self.path}:{self.name}" if not self.parent else f"{self.path}:{self.parent}.{self.name}"
+        if not self.parent:
+            return f"{self.path}:{self.name}"
+        return f"{self.path}:{self.parent}.{self.name}"
 
     @property
     def display(self) -> str:

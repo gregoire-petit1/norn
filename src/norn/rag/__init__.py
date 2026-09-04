@@ -77,7 +77,10 @@ class CodeRAG:
 
     def symbol_context(self, symbol_name: str) -> str:
         """Return source + one-hop neighbors for a named symbol."""
-        matches = [c for c in self._chunks if c.name == symbol_name or c.id.endswith(f":{symbol_name}")]
+        matches = [
+            c for c in self._chunks
+            if c.name == symbol_name or c.id.endswith(f":{symbol_name}")
+        ]
         if not matches:
             return f"(symbol `{symbol_name}` not found in index)"
 
@@ -99,7 +102,10 @@ class CodeRAG:
         lines = [f"## File: `{rel_path}` ({len(chunks)} symbols)\n"]
         for c in chunks:
             parent = f"{c.parent}." if c.parent else ""
-            lines.append(f"- `{parent}{c.name}` ({c.kind}) L{c.line_start}-{c.line_end}: {c.signature}")
+            lines.append(
+                f"- `{parent}{c.name}` ({c.kind}) "
+                f"L{c.line_start}-{c.line_end}: {c.signature}"
+            )
         return "\n".join(lines)
 
     @property

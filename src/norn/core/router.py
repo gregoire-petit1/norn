@@ -143,7 +143,9 @@ _TECHNICAL_ERROR_SIGNALS = (
     "tool_use_failed",
 )
 
-_RATE_LIMIT_SIGNALS = ("429", "rate limit", "too many requests", "session usage limit", "reached your session")
+_RATE_LIMIT_SIGNALS = (
+    "429", "rate limit", "too many requests", "session usage limit", "reached your session",
+)
 
 _RETRY_AFTER_RE = re.compile(r'"retry_after_seconds"\s*:\s*(\d+(?:\.\d+)?)')
 # Groq uses English: "Please try again in 9 seconds" or "in 2m30.5s"

@@ -15,7 +15,8 @@ class CodeRAGSearchInput(BaseModel):
 class CodeRAGSearchTool:
     name = "coderag_search"
     description = (
-        "Search the codebase for relevant functions/classes using hybrid BM25 + semantic retrieval. "
+        "Search the codebase for relevant functions/classes using hybrid "
+        "BM25 + semantic retrieval. "
         "Returns source code of the most relevant symbols with file location."
     )
     risk_level = RiskLevel.LOW

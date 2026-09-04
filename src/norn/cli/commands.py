@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import contextlib
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Awaitable, Callable
+from datetime import UTC
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from rich.console import Console
@@ -160,7 +162,7 @@ def _register_debug_commands(reg: SlashCommandRegistry) -> None:
     @slash_command("/tokens", description="Show session token/message stats", registry=reg)
     async def cmd_tokens(ctx: CommandContext, args: str) -> None:
         agent = ctx.agent
-        ctx.console.print(f"[bold]Session stats:[/bold]")
+        ctx.console.print("[bold]Session stats:[/bold]")
         ctx.console.print(f"  User messages: {agent.user_message_count}")
         ctx.console.print(f"  Tool calls:    {agent.tool_call_count}")
         ctx.console.print(f"  History length: {len(agent.history)}")
@@ -295,7 +297,8 @@ The previous task is complete. Reflect on how it went:
 2. What went wrong or was inefficient?
 3. What would you do differently next time?
 
-Write 1-3 concise lessons learned as bullet points. These will be saved and injected into future sessions.\
+Write 1-3 concise lessons learned as bullet points. These will be saved and
+injected into future sessions.\
 """
 
 
@@ -363,9 +366,9 @@ def _register_ramp_commands(reg: SlashCommandRegistry) -> None:
                     reflection = msg.content
                     break
             if reflection:
-                from datetime import datetime, timezone
+                from datetime import datetime
 
-                ts = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+                ts = datetime.now(UTC).strftime("%Y-%m-%d")
                 lesson = f"## Reflection [{ts}]\n\n{reflection.strip()}"
                 with contextlib.suppress(Exception):
                     # W3.3: snapshot pre-lesson state so `norn bench guard

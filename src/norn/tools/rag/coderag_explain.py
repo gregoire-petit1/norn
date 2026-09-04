@@ -9,7 +9,9 @@ from norn.tools.rag.coderag_search import _get_or_build_rag
 
 
 class CodeRAGExplainInput(BaseModel):
-    file_path: str = Field(description="Relative file path to explain (e.g. src/norn/core/agent.py)")
+    file_path: str = Field(
+        description="Relative file path to explain (e.g. src/norn/core/agent.py)"
+    )
 
 
 class CodeRAGExplainTool:

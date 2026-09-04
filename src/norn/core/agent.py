@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import contextlib
 import time
-from collections.abc import AsyncIterator
-from typing import TYPE_CHECKING, Callable
+from collections.abc import AsyncIterator, Callable
+from datetime import UTC
+from typing import TYPE_CHECKING
 
 from norn.core.models import (
     AgentEvent,
@@ -13,7 +14,6 @@ from norn.core.models import (
     LLMResponse,
     Message,
     Role,
-    StreamChunk,
     ToolCall,
 )
 from norn.core.prompts import AGENT_SYSTEM_PROMPT
@@ -216,7 +216,10 @@ class AgentLoop:
                 content = msg.content or ""
                 is_error = any(
                     content.startswith(prefix)
-                    for prefix in ("Exit code", "Error:", "Unknown tool:", "Permission denied", "Timeout:")
+                    for prefix in (
+                        "Exit code", "Error:", "Unknown tool:",
+                        "Permission denied", "Timeout:",
+                    )
                 )
                 consecutive = consecutive + 1 if is_error else 0
                 max_consecutive = max(max_consecutive, consecutive)
@@ -300,10 +303,10 @@ class AgentLoop:
         """Log failure patterns after a turn completes. Fail-open."""
         self.last_failure_patterns = self._detect_failure_patterns(messages, final_content)
         if self.last_failure_patterns and self.memory_store is not None:
-            from datetime import datetime, timezone
+            from datetime import datetime
 
-            date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-            ts = datetime.now(timezone.utc).isoformat(timespec="seconds")
+            date_str = datetime.now(UTC).strftime("%Y-%m-%d")
+            ts = datetime.now(UTC).isoformat(timespec="seconds")
             entry = f"[{ts}] Failure patterns: {', '.join(self.last_failure_patterns)}"
             with contextlib.suppress(Exception):
                 self.memory_store.append_daily(date_str, entry)
