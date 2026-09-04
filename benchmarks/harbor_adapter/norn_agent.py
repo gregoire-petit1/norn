@@ -60,7 +60,16 @@ _CONFIG_OVERRIDES = {
     # cut off mid-work at the old cap of 20 before writing the deliverable.
     # auto_verify adds up to 2 self-check turns so the agent confirms its
     # output file exists / tests pass before the container tears down.
-    "agent": {"max_tool_rounds": 50, "auto_verify": True, "auto_verify_max_rounds": 2},
+    "agent": {
+        "max_tool_rounds": 50,
+        "auto_verify": True,
+        "auto_verify_max_rounds": 2,
+        # Wave 3: extend the round budget when the run is still making
+        # progress, to counter Norn stopping ~1.75x sooner than
+        # Terminus-2 on compute-heavy tasks.
+        "adaptive_rounds": True,
+        "max_round_extensions": 2,
+    },
     # image_read multimodal: terminal-bench has visual tasks (chess from a
     # rendered board, plots, scanned docs) a text-only agent can't solve.
     # The bench model (router tiers below) must be vision-capable.
